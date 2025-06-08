@@ -78,38 +78,46 @@ def render_sidebar():
 
 def render_main_content():
     """渲染主内容区域"""
-    if not st.session_state.get('analysis_type'):
-        # 步骤1: 选择分析类型
-        UIComponents.render_analysis_type_selection()
+    if not st.session_state.get('uploaded_file'):
+        # 步骤1: 等待文件上传
+        st.info("👈 请在左侧上传Excel文件开始分析")
         
     elif not st.session_state.get('sheet_confirmed'):
-        st.info("👈 请在左侧上传Excel文件并选择Sheet")
+        # 步骤2: 选择数据源（Sheet）
+        handle_sheet_selection()
+        
+    elif not st.session_state.get('analysis_type'):
+        # 步骤3: 选择分析类型
+        UIComponents.render_analysis_type_selection()
         
     elif not st.session_state.get('dimensions_confirmed'):
-        # 步骤3: 选择分析维度
+        # 步骤4: 数据加载和预览，选择分析维度
         if 'uploaded_file' in st.session_state:
             handle_dimension_selection()
         
     elif not st.session_state.get('analysis_confirmed'):
-        # 步骤4: 配置分析参数
+        # 步骤5: 配置分析参数
         if 'uploaded_file' in st.session_state:
             handle_analysis_configuration()
             
     else:
-        # 步骤5: 执行分析
+        # 步骤6: 执行分析
         if 'uploaded_file' in st.session_state:
             execute_analysis()
 
 def handle_file_upload(uploaded_file):
     """处理文件上传"""
     st.session_state.uploaded_file = uploaded_file
-    
-    if st.session_state.get('analysis_type') and not st.session_state.get('sheet_confirmed'):
-        # 显示Sheet选择
-        sheet = UIComponents.render_sheet_selection(uploaded_file)
+    # 文件上传后自动进入sheet选择步骤，不等待分析类型选择
+
+def handle_sheet_selection():
+    """处理Sheet选择"""
+    uploaded_file = st.session_state.get('uploaded_file')
+    if uploaded_file:
+        sheet = UIComponents.render_sheet_selection_simple(uploaded_file)
 
 def handle_dimension_selection():
-    """处理分析维度选择"""
+    """处理数据加载和分析维度选择"""
     analysis_type = st.session_state.get('analysis_type')
     analysis_name = st.session_state.get('analysis_name')
     
@@ -120,9 +128,10 @@ def handle_dimension_selection():
         
         if uploaded_file and selected_sheet:
             # 加载数据
-            df = load_data_cached(uploaded_file, selected_sheet)
+            df = load_data_cached(uploaded_file, str(selected_sheet))
             if not df.empty:
                 # 显示数据预览
+                st.subheader("📊 第三步：数据加载结果")
                 UIComponents.render_data_preview(df)
                 
                 # 选择分析维度
@@ -137,7 +146,7 @@ def handle_dimension_selection():
 
 def handle_analysis_configuration():
     """处理分析配置"""
-    st.subheader("⚙️ 第四步：配置分析参数")
+    st.subheader("⚙️ 第五步：配置分析参数")
     
     # 添加页面置顶JavaScript
     st.markdown("""

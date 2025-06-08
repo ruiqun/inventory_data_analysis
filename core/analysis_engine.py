@@ -260,7 +260,8 @@ class AnalysisEngine:
         }
         
         self.analysis_results["容器选择"] = container_info
-        st.success(f"✅ 容器标准化完成！选定规格: {container_info['length']}×{container_info['width']}×{container_info['height']} cm")
+        st.success(f"✅ 容器标准化完成！选定规格: {container_info['length']}×{container_info['width']}×{container_info['height']} mm")
+        return True
     
     def _execute_packing_analysis(self, config: Dict[str, Any]) -> bool:
         """执行装箱分析"""
@@ -306,15 +307,8 @@ class AnalysisEngine:
                 config['data_unit']
             )
             
-            # 调试信息
-            st.write(f"🔍 装箱分析调试信息:")
-            st.write(f"- 处理的数据行数: {processed_count}")
-            st.write(f"- 装箱结果数量: {len(packing_results)}")
-            st.write(f"- 总库存: {total_inventory}")
-            
             # 生成统计摘要
             summary_stats = analyzer.generate_summary_statistics(packing_results, total_inventory)
-            st.write(f"- 统计摘要键: {list(summary_stats.keys())}")
             
             # 保存分析结果
             self.analysis_results["装箱分析"] = {

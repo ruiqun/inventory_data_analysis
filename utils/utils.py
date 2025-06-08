@@ -14,7 +14,7 @@ class DataUtils:
     @staticmethod
     def load_excel_data(uploaded_file, sheet_name: str) -> pd.DataFrame:
         """
-        加载Excel数据
+        加载Excel数据（优化版 - 支持缓存和进度提示）
         
         Args:
             uploaded_file: 上传的文件对象
@@ -24,10 +24,97 @@ class DataUtils:
             pd.DataFrame: 数据框
         """
         try:
-            return pd.read_excel(uploaded_file, sheet_name=sheet_name)
+            # 创建文件缓存键
+            file_key = f"{uploaded_file.name}_{uploaded_file.size}_{sheet_name}"
+            cache_key = f"data_{file_key}"
+            
+            # 检查缓存
+            if cache_key in st.session_state:
+                st.info(f"📋 使用缓存数据：{sheet_name}")
+                return st.session_state[cache_key]
+            
+            # 显示加载进度
+            with st.spinner(f"📊 正在加载数据表：{sheet_name}..."):
+                # 尝试先读取一小部分数据检查文件
+                sample_df = pd.read_excel(uploaded_file, sheet_name=sheet_name, nrows=5)
+                
+                if sample_df.empty:
+                    st.warning(f"⚠️ 工作表 {sheet_name} 为空")
+                    return pd.DataFrame()
+                
+                # 读取完整数据
+                df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+                
+                # 缓存数据
+                st.session_state[cache_key] = df
+                
+                # 显示加载结果
+                rows, cols = df.shape
+                file_size = f"{df.memory_usage(deep=True).sum() / 1024:.1f} KB"
+                st.success(f"✅ 数据加载完成！{rows:,} 行 × {cols} 列，占用内存: {file_size}")
+                
+                return df
+                
         except Exception as e:
-            st.error(f"读取Excel文件失败: {str(e)}")
+            st.error(f"❌ 读取Excel文件失败: {str(e)}")
             return pd.DataFrame()
+    
+    @staticmethod
+    def get_excel_sheets_info(uploaded_file) -> Dict[str, Any]:
+        """
+        获取Excel文件的工作表信息（缓存版）
+        
+        Args:
+            uploaded_file: 上传的文件对象
+            
+        Returns:
+            dict: 工作表信息
+        """
+        try:
+            file_key = f"{uploaded_file.name}_{uploaded_file.size}"
+            info_key = f"excel_info_{file_key}"
+            
+            # 检查缓存
+            if info_key in st.session_state:
+                return st.session_state[info_key]
+            
+            # 读取Excel文件信息
+            with st.spinner("🔍 正在分析Excel文件结构..."):
+                xls = pd.ExcelFile(uploaded_file)
+                sheet_names = xls.sheet_names
+                
+                # 获取每个sheet的基本信息
+                sheets_info = {}
+                for sheet_name in sheet_names:
+                    try:
+                        # 只读取前几行来获取基本信息
+                        sample_df = pd.read_excel(uploaded_file, sheet_name=sheet_name, nrows=10)
+                        sheets_info[sheet_name] = {
+                            'columns': len(sample_df.columns),
+                            'has_data': not sample_df.empty,
+                            'sample_columns': list(sample_df.columns)[:5]  # 前5列
+                        }
+                    except Exception:
+                        sheets_info[sheet_name] = {
+                            'columns': 0,
+                            'has_data': False,
+                            'sample_columns': []
+                        }
+                
+                info = {
+                    'sheet_names': sheet_names,
+                    'sheet_count': len(sheet_names),
+                    'sheets_info': sheets_info
+                }
+                
+                # 缓存信息
+                st.session_state[info_key] = info
+                
+                return info
+                
+        except Exception as e:
+            st.error(f"❌ Excel文件分析失败: {str(e)}")
+            return {'sheet_names': [], 'sheet_count': 0, 'sheets_info': {}}
     
     @staticmethod
     def validate_columns_existence(df: pd.DataFrame, required_columns: List[str]) -> Tuple[bool, List[str]]:
@@ -155,7 +242,7 @@ class SessionStateManager:
         
         # 清理数据缓存
         for key in list(st.session_state.keys()):
-            if key.startswith('data_'):
+            if isinstance(key, str) and key.startswith('data_'):
                 del st.session_state[key]
     
     @staticmethod

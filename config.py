@@ -135,17 +135,15 @@ LOGIC_OPERATORS = {
     "OR": "或"
 }
 
-# 容器规格配置
+# 容器规格配置 (单位: mm)
 CONTAINER_SPECS = {
     "600x400x300": {"length": 600, "width": 400, "height": 300},
-    "650x450x350": {"length": 650, "width": 450, "height": 350},
-    "700x500x400": {"length": 700, "width": 500, "height": 400},
-    "800x600x450": {"length": 800, "width": 600, "height": 450}
+    "650x450x300": {"length": 650, "width": 450, "height": 300}
 }
 
 # 装箱分析配置
 PACKING_CONFIG = {
-    "max_items_per_box": 10000,  # 单个摆放方式最大装箱数限制
+    "max_items_per_box": 100000,  # 单个摆放方式最大装箱数限制（提高到100,000以支持更大容器）
     "large_dataset_threshold": 50,  # 大数据集阈值
     "preview_rows": 30,  # 预览行数
     "batch_size": 50,  # 分批处理大小

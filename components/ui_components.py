@@ -7,6 +7,7 @@ import streamlit as st
 import pandas as pd
 from config import *
 from core.packing_analysis import PackingAnalyzer
+from utils import DataUtils
 
 class UIComponents:
     """UI组件管理器"""
@@ -14,48 +15,149 @@ class UIComponents:
     @staticmethod
     def render_analysis_type_selection():
         """渲染分析类型选择界面"""
-        st.subheader("🎯 第一步：选择分析类型")
+        st.subheader("🎯 第二步：选择分析类型")
         
         # 创建三列布局显示分析类型
         col1, col2, col3 = st.columns(3)
         
+        # 获取当前选择的分析类型
+        current_selection = st.session_state.get('temp_analysis_type', None)
+        
         with col1:
             if st.button(f"{ANALYSIS_TYPES[LANG['inventory_analysis']]['icon']} {LANG['inventory_analysis']}", 
-                        use_container_width=True, type="secondary"):
-                st.session_state.analysis_type = "inventory"
-                st.session_state.analysis_name = LANG["inventory_analysis"]
+                        use_container_width=True, 
+                        type="primary" if current_selection == "inventory" else "secondary"):
+                st.session_state.temp_analysis_type = "inventory"
+                st.session_state.temp_analysis_name = LANG["inventory_analysis"]
+                st.rerun()
         
         with col2:
             if st.button(f"{ANALYSIS_TYPES[LANG['inbound_analysis']]['icon']} {LANG['inbound_analysis']}", 
-                        use_container_width=True, type="secondary"):
-                st.session_state.analysis_type = "inbound"
-                st.session_state.analysis_name = LANG["inbound_analysis"]
+                        use_container_width=True, 
+                        type="primary" if current_selection == "inbound" else "secondary"):
+                st.session_state.temp_analysis_type = "inbound"
+                st.session_state.temp_analysis_name = LANG["inbound_analysis"]
+                st.rerun()
         
         with col3:
             if st.button(f"{ANALYSIS_TYPES[LANG['outbound_analysis']]['icon']} {LANG['outbound_analysis']}", 
-                        use_container_width=True, type="secondary"):
-                st.session_state.analysis_type = "outbound"
-                st.session_state.analysis_name = LANG["outbound_analysis"]
+                        use_container_width=True, 
+                        type="primary" if current_selection == "outbound" else "secondary"):
+                st.session_state.temp_analysis_type = "outbound"
+                st.session_state.temp_analysis_name = LANG["outbound_analysis"]
+                st.rerun()
+        
+        # 显示当前选择
+        if current_selection:
+            temp_name = st.session_state.get('temp_analysis_name')
+            st.success(f"✅ 已选择：**{temp_name}**")
+            
+            # 确认按钮
+            if st.button("确认分析类型", type="primary", use_container_width=True):
+                st.session_state.analysis_type = st.session_state.temp_analysis_type
+                st.session_state.analysis_name = st.session_state.temp_analysis_name
+                # 清理临时状态
+                del st.session_state.temp_analysis_type
+                del st.session_state.temp_analysis_name
+                st.rerun()
+        else:
+            st.info("👆 请选择要执行的分析类型")
     
     @staticmethod
     def render_sheet_selection(uploaded_file):
-        """渲染Sheet选择界面"""
-        st.subheader("📋 第二步：选择数据源")
+        """渲染Sheet选择界面（优化版）"""
+        st.subheader("📋 第一步：选择数据源")
         
-        xls = pd.ExcelFile(uploaded_file)
-        sheet_names = xls.sheet_names
+        # 使用新的工具函数获取Excel信息
+        excel_info = DataUtils.get_excel_sheets_info(uploaded_file)
         
-        st.write(f"📋 检测到 {len(sheet_names)} 个Sheet: {', '.join(sheet_names)}")
+        if not excel_info['sheet_names']:
+            st.error("❌ 无法读取Excel文件的工作表信息")
+            return None
         
-        sheet = st.selectbox(LANG["select_sheet"], sheet_names)
+        sheet_names = excel_info['sheet_names']
+        sheets_info = excel_info['sheets_info']
+        
+        st.write(f"📋 发现 {len(sheet_names)} 个工作表：")
+        
+        # 展示每个工作表的详细信息
+        for sheet_name in sheet_names:
+            info = sheets_info.get(sheet_name, {})
+            has_data = info.get('has_data', False)
+            columns = info.get('columns', 0)
+            
+            if has_data:
+                st.success(f"✅ **{sheet_name}** - {columns} 列数据，包含内容")
+                sample_cols = info.get('sample_columns', [])
+                if sample_cols:
+                    st.caption(f"   前几列：{', '.join(sample_cols)}")
+            else:
+                st.warning(f"⚠️ **{sheet_name}** - 空工作表或无数据")
+        
+        # 过滤有数据的工作表作为推荐选项
+        valid_sheets = [name for name in sheet_names if sheets_info.get(name, {}).get('has_data', False)]
+        
+        if valid_sheets:
+            # 如果有有效工作表，优先显示
+            if len(valid_sheets) == 1:
+                st.info(f"💡 推荐选择：**{valid_sheets[0]}** （唯一有数据的工作表）")
+                default_index = sheet_names.index(valid_sheets[0])
+            else:
+                st.info(f"💡 推荐工作表：{', '.join(valid_sheets)}")
+                default_index = sheet_names.index(valid_sheets[0])
+        else:
+            st.warning("⚠️ 所有工作表都没有检测到数据，请检查文件内容")
+            default_index = 0
+        
+        sheet = st.selectbox(
+            LANG["select_sheet"], 
+            sheet_names,
+            index=default_index,
+            help="建议选择有数据的工作表进行分析"
+        )
         
         if st.button(LANG["confirm_button"], type="primary"):
             st.session_state.sheet_confirmed = True
             st.session_state.selected_sheet = sheet
             # 清理旧的数据缓存
             for key in list(st.session_state.keys()):
-                if key.startswith('data_'):
+                if isinstance(key, str) and key.startswith('data_'):
                     del st.session_state[key]
+                    
+        return sheet
+    
+    @staticmethod
+    def render_sheet_selection_simple(uploaded_file):
+        """渲染简化版Sheet选择界面"""
+        st.subheader("📋 第一步：选择数据源")
+        
+        # 使用工具函数获取Excel信息
+        excel_info = DataUtils.get_excel_sheets_info(uploaded_file)
+        
+        if not excel_info['sheet_names']:
+            st.error("❌ 无法读取Excel文件的工作表信息")
+            return None
+        
+        sheet_names = excel_info['sheet_names']
+        
+        # 简单显示工作表数量
+        st.write(f"📋 发现 {len(sheet_names)} 个工作表")
+        
+        # 直接显示选择框，不展示详细信息
+        sheet = st.selectbox(
+            "请选择要分析的工作表：", 
+            sheet_names,
+            help="选择包含要分析数据的工作表"
+        )
+        
+        if st.button("确认选择", type="primary"):
+            st.session_state.sheet_confirmed = True
+            st.session_state.selected_sheet = sheet
+            # 清理旧的数据缓存
+            for key in list(st.session_state.keys()):
+                if isinstance(key, str) and key.startswith('data_'):
+                    del st.session_state[key]
+            st.rerun()
                     
         return sheet
     
@@ -77,7 +179,7 @@ class UIComponents:
     @staticmethod
     def render_dimension_selection(analysis_type, analysis_name):
         """渲染分析维度选择界面"""
-        st.subheader("🔍 第三步：选择分析维度")
+        st.subheader("🔍 第四步：选择分析维度")
         
         available_dimensions = ANALYSIS_TYPE_DIMENSIONS[analysis_type]
         st.write(f"📊 请勾选要执行的 **{analysis_name}** 维度：")
@@ -105,9 +207,22 @@ class UIComponents:
                     current_selected_dimensions.append(dimension)
                     
                     if dimension == "容器选择":
-                        UIComponents._render_container_selection()
+                        # 使用两列布局，将绿色提示放在右侧
+                        col1, col2 = st.columns([3, 2])
+                        with col1:
+                            UIComponents._render_container_selection_compact()
+                        with col2:
+                            st.success("✅ **容器标准化完成！**")
+                            st.caption("")  # 空行保持高度一致
                     elif dimension == "异常数据清洗":
-                        st.success("🔄 **已选择前置处理**：后续分析将基于清洗后的数据进行")
+                        # 使用两列布局，将绿色提示放在右侧
+                        col1, col2 = st.columns([3, 2])
+                        with col1:
+                            st.info("📊 数据清洗配置将在后续步骤中详细设置")
+                            st.caption("高级条件筛选和逻辑判断")
+                        with col2:
+                            st.success("✅ **数据清洗已启用！**")
+                            st.caption("")  # 空行保持高度一致
         
         # 显示分析步骤
         if analysis_dimensions:
@@ -150,7 +265,7 @@ class UIComponents:
         with st.container():
             st.write("**📏 选择标准容器规格：**")
             container_size = st.selectbox(
-                "容器尺寸 (长x宽x高 cm)",
+                "容器尺寸 (长x宽x高 mm)",
                 options=list(CONTAINER_SPECS.keys()),
                 key="selected_container_size",
                 help="选择的容器规格将应用于所有后续分析"
@@ -158,11 +273,30 @@ class UIComponents:
             
             dimensions = CONTAINER_SPECS[container_size]
             length, width, height = dimensions['length'], dimensions['width'], dimensions['height']
-            st.info(f"✅ **选定容器规格**：长{length}cm × 宽{width}cm × 高{height}cm")
+            st.info(f"✅ **选定容器规格**：长{length}mm × 宽{width}mm × 高{height}mm")
             
             st.session_state.container_length = length
             st.session_state.container_width = width
             st.session_state.container_height = height
+
+    @staticmethod
+    def _render_container_selection_compact():
+        """渲染紧凑版容器选择界面"""
+        container_size = st.selectbox(
+            "容器尺寸 (长x宽x高 mm)",
+            options=list(CONTAINER_SPECS.keys()),
+            key="selected_container_size",
+            help="选择的容器规格将应用于所有后续分析"
+        )
+        
+        dimensions = CONTAINER_SPECS[container_size]
+        length, width, height = dimensions['length'], dimensions['width'], dimensions['height']
+        st.caption(f"规格: {length}×{width}×{height} mm")
+        st.caption("")  # 添加空行保持与右侧绿色框高度一致
+        
+        st.session_state.container_length = length
+        st.session_state.container_width = width
+        st.session_state.container_height = height
     
     @staticmethod
     def render_packing_analysis_config(columns):
@@ -360,41 +494,39 @@ class UIComponents:
         export_col1, export_col2, export_col3 = st.columns(3)
         
         with export_col1:
-            if st.button("📊 导出基础结果", help="导出SKU信息和装箱结果"):
-                csv_data = UIComponents._generate_basic_export(packing_results, data_unit)
-                st.download_button(
-                    label="📥 下载基础装箱结果",
-                    data=csv_data,
-                    file_name=f"装箱分析_基础结果_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    key="download_basic_safe"
-                )
-                st.success("✅ 基础结果导出准备完成！")
+            csv_data = UIComponents._generate_basic_export(packing_results, data_unit)
+            st.download_button(
+                label="📊 导出基础结果",
+                data=csv_data,
+                file_name=f"装箱分析_基础结果_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="download_basic_safe",
+                help="导出SKU信息和装箱结果"
+            )
         
         with export_col2:
-            if st.button("📈 导出统计摘要", help="导出装箱统计汇总"):
-                csv_data = UIComponents._generate_summary_export(summary_stats, container_info)
-                st.download_button(
-                    label="📥 下载统计摘要",
-                    data=csv_data,
-                    file_name=f"装箱分析_统计摘要_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    key="download_summary_safe"
-                )
-                st.success("✅ 统计摘要导出准备完成！")
+            csv_data = UIComponents._generate_summary_export(summary_stats, container_info)
+            st.download_button(
+                label="📈 导出统计摘要",
+                data=csv_data,
+                file_name=f"装箱分析_统计摘要_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="download_summary_safe",
+                help="导出装箱统计汇总"
+            )
         
         with export_col3:
             show_details = st.session_state.get("装箱分析_show_details", True)
-            if show_details and st.button("📋 导出详细数据", help="导出包含6种摆放方式的完整数据"):
+            if show_details:
                 csv_data = UIComponents._generate_detailed_export(packing_results, data_unit)
                 st.download_button(
-                    label="📥 下载详细装箱数据",
+                    label="📋 导出详细数据",
                     data=csv_data,
                     file_name=f"装箱分析_详细结果_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
-                    key="download_detailed_safe"
+                    key="download_detailed_safe",
+                    help="导出包含6种摆放方式的完整数据"
                 )
-                st.success("✅ 详细数据导出准备完成！")
     
     @staticmethod
     def _generate_basic_export(packing_results, data_unit):
@@ -421,7 +553,7 @@ class UIComponents:
         """生成统计摘要导出数据"""
         summary_report = {
             "装箱分析摘要": [
-                f"容器规格: {container_info['length']}×{container_info['width']}×{container_info['height']} cm",
+                f"容器规格: {container_info['length']}×{container_info['width']}×{container_info['height']} mm",
                 f"总SKU数: {summary_stats['total_sku_count']:,} 个",
                 f"可装箱SKU: {summary_stats['can_pack_items']:,} 个",
                 f"装不下SKU: {summary_stats['cannot_pack_items']:,} 个",
@@ -627,7 +759,7 @@ class UIComponents:
                     del st.session_state[key]
             
             for key in list(st.session_state.keys()):
-                if key.startswith('data_'):
+                if isinstance(key, str) and key.startswith('data_'):
                     del st.session_state[key]
             
             st.rerun() 

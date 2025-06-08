@@ -19,9 +19,10 @@ class PackingAnalyzer:
             container_info: 容器信息字典，包含length, width, height, size, volume
         """
         self.container_info = container_info
-        self.container_length_mm = container_info['length'] * 10
-        self.container_width_mm = container_info['width'] * 10  
-        self.container_height_mm = container_info['height'] * 10
+        # 容器配置中的尺寸已经是mm单位，无需转换
+        self.container_length_mm = container_info['length']
+        self.container_width_mm = container_info['width']  
+        self.container_height_mm = container_info['height']
         
     def validate_goods_size(self, length, width, height):
         """

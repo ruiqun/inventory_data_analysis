@@ -72,8 +72,16 @@ def render_sidebar():
     else:
         st.info("👆 请先上传Excel数据文件")
         
-    # 重置按钮
+    # 回上一步和重置按钮
     st.markdown("---")
+    
+    # 显示当前步骤状态
+    current_step = get_current_step()
+    if current_step > 1:
+        st.write(f"📍 当前：第{current_step}步")
+        if st.button("⬅️ 回上一步", type="secondary", use_container_width=True):
+            go_back_one_step()
+    
     UIComponents.render_reset_button()
 
 def render_main_content():
@@ -86,8 +94,11 @@ def render_main_content():
         # 步骤2: 选择数据源（Sheet）
         handle_sheet_selection()
         
-    elif not st.session_state.get('analysis_type'):
-        # 步骤3: 选择分析类型
+    elif not st.session_state.get('analysis_type') or st.session_state.get('manual_back_to_step2'):
+        # 步骤2: 选择分析类型（或手动回退到此步骤）
+        if st.session_state.get('manual_back_to_step2'):
+            # 清除临时回退标记
+            del st.session_state.manual_back_to_step2
         UIComponents.render_analysis_type_selection()
         
     elif not st.session_state.get('dimensions_confirmed'):
@@ -128,10 +139,14 @@ def handle_dimension_selection():
         
         if uploaded_file and selected_sheet:
             # 加载数据
-            df = load_data_cached(uploaded_file, str(selected_sheet))
+            sheet_name = str(selected_sheet) if selected_sheet is not None else ""
+            if sheet_name:
+                df = load_data_cached(uploaded_file, sheet_name)
+            else:
+                df = pd.DataFrame()
             if not df.empty:
                 # 显示数据预览
-                st.subheader("📊 第三步：数据加载结果")
+                st.subheader("📊 数据加载结果")
                 UIComponents.render_data_preview(df)
                 
                 # 选择分析维度
@@ -142,20 +157,38 @@ def handle_dimension_selection():
                     if st.button(LANG["next_step"], type="primary"):
                         st.session_state.selected_dimensions = selected_dimensions
                         st.session_state.dimensions_confirmed = True
+                        # 添加页面自动滚动到第四步标题位置
+                        st.markdown("""
+                        <script>
+                        setTimeout(function() {
+                            // 查找包含"第四步"或"配置分析参数"的标题元素
+                            const elements = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+                            let targetElement = null;
+                            for (let element of elements) {
+                                if (element.textContent.includes('第四步') || element.textContent.includes('配置分析参数')) {
+                                    targetElement = element;
+                                    break;
+                                }
+                            }
+                            
+                            if (targetElement) {
+                                // 滚动到第四步标题位置，留一些顶部空间
+                                const offsetTop = targetElement.offsetTop - 80;
+                                window.scrollTo(0, Math.max(0, offsetTop));
+                                console.log('滚动到第四步位置:', offsetTop);
+                            } else {
+                                // 如果找不到第四步标题，则滚动到顶部
+                                window.scrollTo(0, 0);
+                                console.log('未找到第四步标题，滚动到顶部');
+                            }
+                        }, 500);
+                        </script>
+                        """, unsafe_allow_html=True)
                         st.rerun()
 
 def handle_analysis_configuration():
     """处理分析配置"""
-    st.subheader("⚙️ 第五步：配置分析参数")
-    
-    # 添加页面置顶JavaScript
-    st.markdown("""
-    <script>
-    setTimeout(function() {
-        window.scrollTo(0, 0);
-    }, 100);
-    </script>
-    """, unsafe_allow_html=True)
+    st.subheader("⚙️ 第四步：配置分析参数")
     
     selected_dimensions = st.session_state.get('selected_dimensions', [])
     uploaded_file = st.session_state.get('uploaded_file')
@@ -166,7 +199,12 @@ def handle_analysis_configuration():
         return
     
     # 加载数据
-    df = load_data_cached(uploaded_file, selected_sheet)
+    if selected_sheet is None:
+        st.error("❌ 未找到选择的工作表")
+        return
+    
+    sheet_name = str(selected_sheet)
+    df = load_data_cached(uploaded_file, sheet_name)
     if df.empty:
         st.error("❌ 数据加载失败")
         return
@@ -223,13 +261,38 @@ def handle_analysis_configuration():
         if st.button(LANG["start_analysis"], type="primary", use_container_width=True):
             st.session_state.dimension_configs = dimension_configs
             st.session_state.analysis_confirmed = True
+            # 页面自动滚动到第五步位置
+            st.markdown("""
+            <script>
+            setTimeout(function() {
+                // 查找包含"第五步"或"正在执行分析"的标题元素
+                const elements = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+                let targetElement = null;
+                for (let element of elements) {
+                    if (element.textContent.includes('第五步') || element.textContent.includes('正在执行分析')) {
+                        targetElement = element;
+                        break;
+                    }
+                }
+                
+                if (targetElement) {
+                    // 滚动到执行分析标题位置，留一些顶部空间
+                    const offsetTop = targetElement.offsetTop - 80;
+                    window.scrollTo(0, offsetTop);
+                } else {
+                    // 如果找不到目标标题，则滚动到顶部
+                    window.scrollTo(0, 0);
+                }
+            }, 200);
+            </script>
+            """, unsafe_allow_html=True)
             st.rerun()
     else:
         st.warning("⚠️ 请完成所有必需的配置项")
 
 def execute_analysis():
     """执行分析"""
-    st.subheader("🚀 正在执行分析...")
+    st.subheader("🚀 第五步：正在执行分析...")
     
     # 获取数据和配置
     uploaded_file = st.session_state.get('uploaded_file')
@@ -238,7 +301,12 @@ def execute_analysis():
     dimension_configs = st.session_state.get('dimension_configs', {})
     
     # 加载数据
-    df = load_data_cached(uploaded_file, selected_sheet)
+    if selected_sheet is None:
+        st.error("❌ 未找到选择的工作表")
+        return
+    
+    sheet_name = str(selected_sheet)
+    df = load_data_cached(uploaded_file, sheet_name)
     if df.empty:
         st.error("❌ 数据加载失败")
         return
@@ -382,6 +450,109 @@ def generate_pdf_report(analysis_engine: AnalysisEngine):
         
     except Exception as e:
         st.error(f"❌ PDF报告生成失败: {str(e)}")
+
+def get_current_step():
+    """获取当前步骤"""
+    if not st.session_state.get('uploaded_file'):
+        return 1  # 等待文件上传
+    elif not st.session_state.get('sheet_confirmed'):
+        return 1  # 选择数据源
+    elif not st.session_state.get('analysis_type'):
+        return 2  # 选择分析类型
+    elif not st.session_state.get('dimensions_confirmed'):
+        return 3  # 选择分析维度
+    elif not st.session_state.get('analysis_confirmed'):
+        return 4  # 配置分析参数
+    else:
+        return 5  # 执行分析
+
+def go_back_one_step():
+    """回上一步 - 保持已有选择"""
+    # 根据当前状态判断回退到哪一步
+    if st.session_state.get('analysis_confirmed'):
+        # 如果在第五步（执行分析），回退到第四步
+        st.session_state.analysis_confirmed = False
+        # 保持dimension_configs，用户可能想修改配置
+        # BUGFIX: 显式地将保存的配置恢复，以便UI组件可以加载它们
+        if 'dimension_configs' in st.session_state:
+            for dimension, config in st.session_state.dimension_configs.items():
+                # 根据维度类型，恢复相应的session_state键值
+                if dimension == "装箱分析":
+                    # 恢复装箱分析的配置
+                    st.session_state["装箱分析_length_column"] = config.get('length_column')
+                    st.session_state["装箱分析_width_column"] = config.get('width_column')
+                    st.session_state["装箱分析_height_column"] = config.get('height_column')
+                    st.session_state["装箱分析_inventory_column"] = config.get('inventory_column')
+                    st.session_state["装箱分析_data_unit"] = config.get('data_unit', 'cm')
+                    st.session_state["装箱分析_show_details"] = config.get('show_details', True)
+                elif dimension == "异常数据清洗":
+                    # 恢复异常数据清洗的配置
+                    st.session_state["异常数据清洗_all_conditions"] = config.get('all_conditions', [])
+                    st.session_state["异常数据清洗_overall_logic"] = config.get('overall_logic', 'OR')
+                    st.session_state["异常数据清洗_overall_group_logic"] = config.get('overall_logic', 'OR')
+                    st.session_state["异常数据清洗_action"] = config.get('action', '删除')
+                    
+                    # 恢复条件组的详细配置
+                    all_conditions = config.get('all_conditions', [])
+                    if all_conditions:
+                        st.session_state["异常数据清洗_group_count"] = len(all_conditions)
+                        for group_idx, group_conditions in enumerate(all_conditions, 1):
+                            if group_conditions:
+                                st.session_state[f"condition_count_异常数据清洗_{group_idx}"] = len(group_conditions)
+                                for cond_idx, condition in enumerate(group_conditions):
+                                    prefix = f"condition_异常数据清洗_{group_idx}_{cond_idx}"
+                                    st.session_state[f"{prefix}_columns"] = condition.get('columns', [])
+                                    operator = condition.get('operator', '>')
+                                    st.session_state[f"{prefix}_operator"] = operator
+                                    value = condition.get('value', 0)
+                                    
+                                    # 根据操作符类型，恢复对应的值键
+                                    if operator in ["in_range", "not_in_range"] and isinstance(value, list) and len(value) == 2:
+                                        st.session_state[f"{prefix}_min"] = value[0]
+                                        st.session_state[f"{prefix}_max"] = value[1]
+                                        st.session_state[f"{prefix}_type"] = "整数" if isinstance(value[0], int) else "小数"
+                                    elif operator in ["contains", "not_contains"]:
+                                        st.session_state[f"{prefix}_text"] = str(value)
+                                        # 文本操作符不需要type键，但UI会创建placeholder
+                                    else:
+                                        st.session_state[f"{prefix}_value"] = value
+                                        st.session_state[f"{prefix}_type"] = "整数" if isinstance(value, int) else "小数"
+        st.success("✅ 已回退到第四步：配置分析参数")
+    elif st.session_state.get('dimensions_confirmed'):
+        # 如果在第四步（配置参数），回退到第三步
+        st.session_state.dimensions_confirmed = False
+        # 回到维度选择，旧的配置可能不再适用，因此清除它们
+        if 'dimension_configs' in st.session_state:
+            del st.session_state['dimension_configs']
+        st.success("✅ 已回退到第三步：选择分析维度")
+    elif st.session_state.get('analysis_type') and st.session_state.get('sheet_confirmed'):
+        # 如果已选择分析类型且sheet已确认，说明在第三步（选择维度），回退到第二步
+        # 保持analysis_type和analysis_name的选择
+        # 只清除维度相关的确认状态
+        if 'dimensions_confirmed' in st.session_state:
+            del st.session_state.dimensions_confirmed
+        if 'selected_dimensions' in st.session_state:
+            del st.session_state.selected_dimensions
+        # 添加一个临时标记，表示用户手动回退到第二步，避免直接跳转到第三步
+        st.session_state.manual_back_to_step2 = True
+        st.success("✅ 已回退到第二步：选择分析类型")
+    elif st.session_state.get('sheet_confirmed'):
+        # 如果在第二步（选择分析类型），回退到第一步
+        st.session_state.sheet_confirmed = False
+        # 保持selected_sheet的选择，用户可能只想重新选择分析类型
+        st.success("✅ 已回退到第一步：选择数据源")
+    else:
+        st.info("💡 已经是第一步，无法继续回退")
+    
+    # 添加页面自动滚动到顶部
+    st.markdown("""
+    <script>
+    setTimeout(function() {
+        window.scrollTo(0, 0);
+    }, 100);
+    </script>
+    """, unsafe_allow_html=True)
+    st.rerun()
 
 def reset_analysis():
     """重置分析流程"""

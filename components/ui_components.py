@@ -59,6 +59,14 @@ class UIComponents:
                 # 清理临时状态
                 del st.session_state.temp_analysis_type
                 del st.session_state.temp_analysis_name
+                # 页面自动滚动到顶部
+                st.markdown("""
+                <script>
+                setTimeout(function() {
+                    window.scrollTo(0, 0);
+                }, 100);
+                </script>
+                """, unsafe_allow_html=True)
                 st.rerun()
         else:
             st.info("👆 请选择要执行的分析类型")
@@ -157,6 +165,14 @@ class UIComponents:
             for key in list(st.session_state.keys()):
                 if isinstance(key, str) and key.startswith('data_'):
                     del st.session_state[key]
+            # 页面自动滚动到顶部
+            st.markdown("""
+            <script>
+            setTimeout(function() {
+                window.scrollTo(0, 0);
+            }, 100);
+            </script>
+            """, unsafe_allow_html=True)
             st.rerun()
                     
         return sheet
@@ -179,7 +195,7 @@ class UIComponents:
     @staticmethod
     def render_dimension_selection(analysis_type, analysis_name):
         """渲染分析维度选择界面"""
-        st.subheader("🔍 第四步：选择分析维度")
+        st.subheader("🔍 第三步：选择分析维度")
         
         available_dimensions = ANALYSIS_TYPE_DIMENSIONS[analysis_type]
         st.write(f"📊 请勾选要执行的 **{analysis_name}** 维度：")
@@ -219,7 +235,6 @@ class UIComponents:
                         col1, col2 = st.columns([3, 2])
                         with col1:
                             st.info("📊 数据清洗配置将在后续步骤中详细设置")
-                            st.caption("高级条件筛选和逻辑判断")
                         with col2:
                             st.success("✅ **数据清洗已启用！**")
                             st.caption("")  # 空行保持高度一致
@@ -291,7 +306,6 @@ class UIComponents:
         
         dimensions = CONTAINER_SPECS[container_size]
         length, width, height = dimensions['length'], dimensions['width'], dimensions['height']
-        st.caption(f"规格: {length}×{width}×{height} mm")
         st.caption("")  # 添加空行保持与右侧绿色框高度一致
         
         st.session_state.container_length = length
@@ -320,40 +334,72 @@ class UIComponents:
         # 列选择
         col1, col2 = st.columns(2)
         with col1:
+            # 获取已保存的选择，如果没有则使用第一个选项作为默认值
+            saved_length = st.session_state.get("装箱分析_length_column")
+            length_index = 0
+            if saved_length and saved_length in columns:
+                length_index = columns.index(saved_length)
+            
             length_column = st.selectbox(
                 "货物长度列",
                 options=columns,
+                index=length_index,
                 key="装箱分析_length_column",
                 help="选择包含货物长度数据的列"
             )
             
+            saved_width = st.session_state.get("装箱分析_width_column")
+            width_index = 0
+            if saved_width and saved_width in columns:
+                width_index = columns.index(saved_width)
+            
             width_column = st.selectbox(
                 "货物宽度列", 
                 options=columns,
+                index=width_index,
                 key="装箱分析_width_column",
                 help="选择包含货物宽度数据的列"
             )
         
         with col2:
+            saved_height = st.session_state.get("装箱分析_height_column")
+            height_index = 0
+            if saved_height and saved_height in columns:
+                height_index = columns.index(saved_height)
+            
             height_column = st.selectbox(
                 "货物高度列",
                 options=columns,
+                index=height_index,
                 key="装箱分析_height_column", 
                 help="选择包含货物高度数据的列"
             )
             
+            saved_inventory = st.session_state.get("装箱分析_inventory_column")
+            inventory_index = 0
+            if saved_inventory and saved_inventory in columns:
+                inventory_index = columns.index(saved_inventory)
+            
             inventory_column = st.selectbox(
                 "库存件数列",
                 options=columns,
+                index=inventory_index,
                 key="装箱分析_inventory_column",
                 help="选择包含库存件数的列"
             )
         
         st.write("**📏 数据单位设置**")
+        # 获取已保存的数据单位选择
+        saved_unit = st.session_state.get("装箱分析_data_unit", "cm")
+        unit_options = ["mm", "cm", "m"]
+        unit_index = 1  # 默认选择cm
+        if saved_unit in unit_options:
+            unit_index = unit_options.index(saved_unit)
+        
         data_unit = st.selectbox(
             "货物尺寸数据单位",
-            options=["mm", "cm", "m"],
-            index=1,  # 默认选择cm
+            options=unit_options,
+            index=unit_index,
             key="装箱分析_data_unit",
             help="选择数据中货物尺寸的单位，系统将自动转换为mm进行计算"
         )
@@ -367,9 +413,12 @@ class UIComponents:
             st.caption("💡 数据已为mm单位，无需转换")
         
         st.write("**⚙️ 分析选项**")
+        # 获取已保存的详细显示选择
+        saved_details = st.session_state.get("装箱分析_show_details", True)
+        
         show_details = st.checkbox(
             "显示详细装箱计算过程",
-            value=True,
+            value=saved_details,
             key="装箱分析_show_details",
             help="显示每个SKU的6种摆放方式计算详情"
         )
@@ -616,23 +665,26 @@ class UIComponents:
         st.write("**🎯 条件组设置**")
         st.caption("💡 条件组内的条件之间是 **AND（且）** 关系，条件组之间的关系可以选择")
         
+        # 初始化：默认有1个条件组及1个条件
+        if "异常数据清洗_group_count" not in st.session_state:
+            st.session_state["异常数据清洗_group_count"] = 1
+            # 为第一个条件组设置默认1个条件
+            st.session_state["condition_count_异常数据清洗_1"] = 1
+        
         col1, col2 = st.columns([3, 1])
         with col1:
-            current_groups = st.session_state.get('异常数据清洗_group_count', 0)
+            current_groups = st.session_state.get('异常数据清洗_group_count', 1)
             st.write(f"当前已设置 {current_groups} 个条件组")
         with col2:
             if st.button("➕ 添加条件组", key="异常数据清洗_add_group"):
-                if "异常数据清洗_group_count" not in st.session_state:
-                    st.session_state["异常数据清洗_group_count"] = 0
                 st.session_state["异常数据清洗_group_count"] += 1
+                # 新增条件组时，默认增加1个条件
+                new_group_id = st.session_state["异常数据清洗_group_count"]
+                st.session_state[f"condition_count_异常数据清洗_{new_group_id}"] = 1
                 st.rerun()
         
         # 显示条件组
-        group_count = st.session_state.get("异常数据清洗_group_count", 0)
-        
-        if group_count == 0:
-            st.info("💡 点击上方 **添加条件组** 按钮开始设置清洗条件")
-            return False
+        group_count = st.session_state.get("异常数据清洗_group_count", 1)
         
         # 条件组间的总体逻辑关系（如果有多个条件组）
         if group_count > 1:
@@ -682,7 +734,7 @@ class UIComponents:
         from config import MATH_OPERATORS
         
         if f"condition_count_{group_key}" not in st.session_state:
-            st.session_state[f"condition_count_{group_key}"] = 0
+            st.session_state[f"condition_count_{group_key}"] = 1  # 默认有1个条件
         
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -696,13 +748,10 @@ class UIComponents:
         condition_count = st.session_state[f"condition_count_{group_key}"]
         conditions = []
         
-        if condition_count == 0:
-            st.info("💡 点击 **添加条件** 按钮开始设置")
-            return conditions
-        
         with st.container():
             for i in range(condition_count):
-                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                # 修改列布局：数据列(2.5) | 运算符(1) | 数据类型(1) | 值(2) | 删除(0.5)
+                col1, col2, col3, col4, col5 = st.columns([2.5, 1, 1, 2, 0.5])
                 
                 with col1:
                     selected_columns = st.multiselect(
@@ -716,21 +765,86 @@ class UIComponents:
                     operator = st.selectbox(
                         f"条件{i+1}-运算符",
                         options=list(MATH_OPERATORS.keys()),
-                        format_func=lambda x: MATH_OPERATORS[x],
                         key=f"condition_{group_key}_{i}_operator"
                     )
                 
                 with col3:
-                    if operator in ["in_range", "not_in_range"]:
-                        min_val = st.number_input(f"条件{i+1}-最小值", key=f"condition_{group_key}_{i}_min")
-                        max_val = st.number_input(f"条件{i+1}-最大值", key=f"condition_{group_key}_{i}_max")
-                        value = [min_val, max_val]
-                    elif operator in ["contains", "not_contains"]:
-                        value = st.text_input(f"条件{i+1}-文本", key=f"condition_{group_key}_{i}_text")
+                    if operator not in ["contains", "not_contains"]:
+                        data_type = st.selectbox(
+                            f"条件{i+1}-数据类型",
+                            options=["整数", "小数"],
+                            key=f"condition_{group_key}_{i}_type",
+                            help="选择数值的数据类型"
+                        )
                     else:
-                        value = st.number_input(f"条件{i+1}-值", key=f"condition_{group_key}_{i}_value")
+                        # 对于文本操作，显示占位符但不可选择
+                        data_type = st.selectbox(
+                            f"条件{i+1}-数据类型",
+                            options=["文本"],
+                            disabled=True,
+                            key=f"condition_{group_key}_{i}_type_placeholder"
+                        )
                 
                 with col4:
+                    # 获取现有值以避免重置
+                    existing_value_key = f"condition_{group_key}_{i}_value"
+                    existing_min_key = f"condition_{group_key}_{i}_min"
+                    existing_max_key = f"condition_{group_key}_{i}_max"
+                    existing_text_key = f"condition_{group_key}_{i}_text"
+                    
+                    if operator in ["in_range", "not_in_range"]:
+                        # 范围输入：使用两个子列
+                        subcol1, subcol2, subcol3 = st.columns([1, 0.2, 1])
+                        with subcol1:
+                            if data_type == "整数":
+                                if existing_min_key in st.session_state:
+                                    min_val = st.number_input(f"最小值", key=existing_min_key, step=1)
+                                else:
+                                    min_val = st.number_input(f"最小值", key=existing_min_key, step=1, value=0)
+                            else:
+                                if existing_min_key in st.session_state:
+                                    min_val = st.number_input(f"最小值", key=existing_min_key, format="%.4f", step=0.0001)
+                                else:
+                                    min_val = st.number_input(f"最小值", key=existing_min_key, format="%.4f", step=0.0001, value=0.0)
+                        with subcol2:
+                            st.markdown("<div style='text-align: center; margin-top: 28px;'>~</div>", unsafe_allow_html=True)
+                        with subcol3:
+                            if data_type == "整数":
+                                if existing_max_key in st.session_state:
+                                    max_val = st.number_input(f"最大值", key=existing_max_key, step=1, label_visibility="collapsed")
+                                else:
+                                    max_val = st.number_input(f"最大值", key=existing_max_key, step=1, value=100, label_visibility="collapsed")
+                                value = [int(min_val), int(max_val)]
+                            else:
+                                if existing_max_key in st.session_state:
+                                    max_val = st.number_input(f"最大值", key=existing_max_key, format="%.4f", step=0.0001, label_visibility="collapsed")
+                                else:
+                                    max_val = st.number_input(f"最大值", key=existing_max_key, format="%.4f", step=0.0001, value=100.0, label_visibility="collapsed")
+                                value = [round(min_val, 4), round(max_val, 4)]
+                    elif operator in ["contains", "not_contains"]:
+                        if existing_text_key in st.session_state:
+                            value = st.text_input(f"条件{i+1}-文本", key=existing_text_key)
+                        else:
+                            value = st.text_input(f"条件{i+1}-文本", key=existing_text_key, value="")
+                    else:
+                        # 单值输入
+                        if data_type == "整数":
+                            if existing_value_key in st.session_state:
+                                input_value = st.number_input(f"条件{i+1}-值", key=existing_value_key, step=1)
+                            else:
+                                input_value = st.number_input(f"条件{i+1}-值", key=existing_value_key, step=1, value=0)
+                            value = int(input_value)
+                        elif data_type == "小数":
+                            if existing_value_key in st.session_state:
+                                input_value = st.number_input(f"条件{i+1}-值", key=existing_value_key, format="%.4f", step=0.0001)
+                            else:
+                                input_value = st.number_input(f"条件{i+1}-值", key=existing_value_key, format="%.4f", step=0.0001, value=0.0)
+                            value = round(input_value, 4)
+                        else:
+                            # 文本类型，不应该到这里，但为了安全
+                            value = ""
+                
+                with col5:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("🗑️", key=f"delete_condition_{group_key}_{i}", help="删除此条件"):
                         st.session_state[f"condition_count_{group_key}"] = max(0, condition_count - 1)
@@ -762,4 +876,12 @@ class UIComponents:
                 if isinstance(key, str) and key.startswith('data_'):
                     del st.session_state[key]
             
+            # 页面自动滚动到顶部
+            st.markdown("""
+            <script>
+            setTimeout(function() {
+                window.scrollTo(0, 0);
+            }, 100);
+            </script>
+            """, unsafe_allow_html=True)
             st.rerun() 

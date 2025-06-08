@@ -68,6 +68,83 @@
 - 所有提示文字使用合适的emoji和粗体标题
 - 保持图标使用的一致性：✅成功、📊信息、⚠️警告、🔄处理中
 
+## 标准UI交互模式（自动滚动）
+- **核心原则**：所有状态切换和确认操作后，自动滚动到相应内容位置
+- **实现方式**：在`st.rerun()`前添加JavaScript滚动代码
+- **滚动策略**：
+  - 普通步骤切换：滚动到页面顶部 `window.scrollTo(0, 0)`
+  - 关键步骤切换：滚动到目标步骤标题位置
+- **智能滚动模板**：
+  ```python
+  st.markdown("""
+  <script>
+  setTimeout(function() {
+      // 查找目标标题元素
+      const elements = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      let targetElement = null;
+      for (let element of elements) {
+          if (element.textContent.includes('目标步骤文字')) {
+              targetElement = element;
+              break;
+          }
+      }
+      
+      if (targetElement) {
+          // 滚动到目标位置，留80px顶部空间
+          const offsetTop = targetElement.offsetTop - 80;
+          window.scrollTo(0, offsetTop);
+      } else {
+          // 回退到顶部滚动
+          window.scrollTo(0, 0);
+      }
+  }, 200);
+  </script>
+  """, unsafe_allow_html=True)
+  ```
+- **适用场景**：
+  - Sheet选择确认后（滚动到顶部）
+  - 分析类型确认后（滚动到顶部）
+  - 维度选择确认后（滚动到"第四步"位置）
+  - 分析配置确认后（滚动到"第五步"位置）
+  - 回上一步按钮（滚动到顶部）
+  - 重置按钮点击后（滚动到顶部）
+- **技术细节**：
+  - 使用`setTimeout(200ms)`确保DOM完全更新
+  - 智能查找目标标题元素
+  - `offsetTop - 80`预留顶部空间，避免标题贴边
+  - 回退机制：找不到目标时滚动到顶部
+- **用户体验目标**：
+  - 精确定位到用户需要关注的内容
+  - 避免滚动过度造成的定位错误
+  - 提供一致且智能的导航体验
+  - 适应不同屏幕尺寸和内容长度
+
+## 数值输入标准规范
+- **数据类型选择**：为所有数值条件输入提供"整数"/"小数"选择器
+- **整数输入模式**：
+  - 使用`st.number_input(step=1, value=0)`避免小数输入
+  - 返回值使用`int()`强制转换，避免浮点数精度问题
+  - 适用场景：库存数量、件数、序号等离散数值
+- **小数输入模式**：
+  - 使用`st.number_input(format="%.4f", step=0.0001)`精确到4位小数
+  - 返回值使用`round(value, 4)`保持精度一致性
+  - 适用场景：价格、重量、尺寸等连续数值
+- **实现模板**：
+  ```python
+  data_type = st.selectbox("数据类型", options=["整数", "小数"])
+  if data_type == "整数":
+      value = st.number_input("值", step=1, value=0)
+      final_value = int(value)
+  else:
+      value = st.number_input("值", format="%.4f", step=0.0001)
+      final_value = round(value, 4)
+  ```
+- **避免问题**：
+  - 消除0.9999999等浮点数精度误差
+  - 提供明确的数据类型控制
+  - 用户无需猜测应该输入整数还是小数
+- **适用范围**：异常数据清洗的所有数值条件输入
+
 ## 性能优化规则
 - 文件上传使用智能缓存机制（基于文件名+大小的唯一标识）
 - Excel文件分析使用渐进式加载（先获取结构，再按需加载数据）

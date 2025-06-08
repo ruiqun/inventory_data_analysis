@@ -93,6 +93,23 @@ def render_sidebar():
 
 def render_main_content():
     """渲染主内容区域"""
+    # 显示配置加载状态提示
+    if st.session_state.get('last_loaded_config_name'):
+        config_name = st.session_state.get('last_loaded_config_name')
+        analysis_type = st.session_state.get('analysis_type', '')
+        
+        with st.container():
+            st.info(f"🔄 **已加载配置**: {config_name} ({analysis_type})")
+            
+            col1, col2 = st.columns([4, 1])
+            with col2:
+                if st.button("✖️ 清除提示", key="clear_config_notice"):
+                    if 'last_loaded_config_name' in st.session_state:
+                        del st.session_state['last_loaded_config_name']
+                    st.rerun()
+        
+        st.markdown("---")
+    
     if not st.session_state.get('uploaded_file'):
         # 步骤1: 等待文件上传
         st.info("👈 请在左侧上传Excel文件开始分析")
@@ -557,6 +574,12 @@ def reset_analysis():
     """重置分析流程"""
     # 清理session state
     SessionStateManager.clear_session_data()
+    
+    # 清除配置加载状态提示
+    for key in ['last_loaded_config_name', 'last_loaded_config_id']:
+        if key in st.session_state:
+            del st.session_state[key]
+    
     st.success("✅ 已重置，请重新开始分析")
     st.rerun()
 

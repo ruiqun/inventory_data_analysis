@@ -23,16 +23,27 @@ def render_config_manager():
         for config in recent_configs:
             with st.sidebar.container():
                 # 配置信息展示
-                col1, col2 = st.sidebar.columns([3, 1])
+                st.markdown(f"**{config['config_name']}**")
+                st.caption(f"""
+                🎯 {config['analysis_name']}  
+                📄 {config['file_name'] or '无文件'}
+                """)
+                
+                # 操作按钮
+                col1, col2 = st.sidebar.columns(2)
                 
                 with col1:
-                    st.markdown(f"**{config['config_name']}**")
-                    st.caption(f"{config['analysis_name']} | 使用{config['use_count']}次")
+                    if st.button("🔄 加载", key=f"load_{config['id']}", help="加载此配置", use_container_width=True):
+                        success = load_configuration(config['id'])
+                        if success:
+                            st.sidebar.success("✅ 配置已加载！")
+                        st.rerun()
                 
                 with col2:
-                    if st.button("🔄", key=f"load_{config['id']}", help="加载此配置"):
-                        load_configuration(config['id'])
-                        st.rerun()
+                    if st.button("📋 详情", key=f"quick_detail_{config['id']}", help="查看配置详情", use_container_width=True):
+                        show_config_quick_detail(config)
+                
+                st.markdown("---")
     
     else:
         st.sidebar.info("📝 还没有保存的配置")
@@ -254,8 +265,7 @@ def render_config_search():
                     📄 文件: {config['file_name'] or '未知'}  
                     📋 工作表: {config['sheet_name'] or '未知'}  
                     🎯 分析: {config['analysis_name']}  
-                    📅 最后使用: {config['last_used']}  
-                    📊 使用次数: {config['use_count']}
+                    📅 创建时间: {config['created_at']}
                     """)
                     
                     # 操作按钮
@@ -298,10 +308,11 @@ def show_config_detail(config: Dict[str, Any]):
         st.write(f"📊 分析名称: {config['analysis_name']}")
     
     with col2:
-        st.markdown("**📊 使用统计**")
+        st.markdown("**📊 基本信息**")
         st.write(f"📅 创建时间: {config['created_at']}")
         st.write(f"🕒 最后使用: {config['last_used']}")
-        st.write(f"📊 使用次数: {config['use_count']}")
+        st.write(f"🎯 分析类型: {config['analysis_type']}")
+        st.write(f"📊 分析名称: {config['analysis_name']}")
     
     # 维度信息
     if config['selected_dimensions']:
@@ -316,6 +327,39 @@ def show_config_detail(config: Dict[str, Any]):
     if config['container_config']:
         st.markdown("**📦 容器配置**")
         st.json(config['container_config'])
+
+def show_config_quick_detail(config: Dict[str, Any]):
+    """显示配置快速详情"""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**📋 {config['config_name']}**")
+    
+    # 基本信息
+    st.sidebar.write(f"🎯 分析类型: {config['analysis_type']}")
+    st.sidebar.write(f"📊 分析名称: {config['analysis_name']}")
+    st.sidebar.write(f"📄 原文件: {config['file_name'] or '未指定'}")
+    st.sidebar.write(f"📋 工作表: {config['sheet_name'] or '未指定'}")
+    
+    # 维度信息
+    if config['selected_dimensions']:
+        st.sidebar.write(f"📐 维度: {', '.join(config['selected_dimensions'])}")
+    
+    # 创建时间
+    st.sidebar.write(f"📅 创建时间: {config['created_at']}")
+    
+    # 快速应用按钮
+    if st.sidebar.button("🚀 一键应用此配置", key=f"apply_{config['id']}", use_container_width=True):
+        success = load_configuration(config['id'])
+        if success:
+            st.sidebar.success("✅ 配置已应用！")
+            # 添加滚动到顶部的JavaScript
+            st.markdown("""
+            <script>
+            setTimeout(function() {
+                window.scrollTo(0, 0);
+            }, 200);
+            </script>
+            """, unsafe_allow_html=True)
+        st.rerun()
 
 def save_current_config():
     """保存当前配置"""
@@ -426,17 +470,33 @@ def load_configuration(config_id: int):
         # 恢复维度配置到session_state
         restore_dimension_configs_to_session(config['dimension_configs'])
         
-        # 设置当前步骤 - 跳转到维度选择步骤，用户需要重新上传数据
-        st.session_state['current_step'] = 'step_3_dimensions'
-        # 清除文件相关状态，需要重新上传
-        for key in ['uploaded_file', 'sheet_confirmed', 'dimensions_confirmed', 'analysis_confirmed']:
-            if key in st.session_state:
-                del st.session_state[key]
+        # 设置正确的状态：如果有文件，直接进入配置参数步骤；如果没有文件，让用户上传文件
+        if st.session_state.get('uploaded_file') and st.session_state.get('selected_sheet'):
+            # 如果已有文件和sheet，直接进入配置参数步骤
+            st.session_state['sheet_confirmed'] = True
+            st.session_state['dimensions_confirmed'] = True
+            # 清除分析确认状态，让用户重新确认配置
+            if 'analysis_confirmed' in st.session_state:
+                del st.session_state['analysis_confirmed']
+        else:
+            # 如果没有文件，清除相关状态，让用户重新上传
+            for key in ['sheet_confirmed', 'dimensions_confirmed', 'analysis_confirmed']:
+                if key in st.session_state:
+                    del st.session_state[key]
+        
+        # 设置配置加载状态提示
+        st.session_state['last_loaded_config_name'] = config['config_name']
+        st.session_state['last_loaded_config_id'] = config['id']
         
         # 显示成功信息
         st.success(f"✅ 已加载配置: {config['config_name']}")
         st.info(f"📄 原文件: {config['file_name'] or '未知'} | 📋 工作表: {config['sheet_name'] or '未知'}")
-        st.warning("⚠️ 请重新上传数据文件以应用此配置")
+        
+        # 根据当前状态给出不同的提示
+        if st.session_state.get('uploaded_file'):
+            st.info("🎯 配置已应用，您可以直接查看配置参数或开始分析")
+        else:
+            st.warning("⚠️ 请上传数据文件以应用此配置")
         
         return True
         
@@ -517,30 +577,10 @@ def restore_cleaning_configs(dimension_configs: Dict[str, Any]):
                                 if 'value' in condition:
                                     st.session_state[f'{cond_prefix}value'] = condition['value']
 
-def render_config_stats():
-    """显示配置统计信息"""
-    stats = config_db.get_config_stats()
-    
-    if stats['total_configs'] > 0:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**📊 配置统计**")
-        st.sidebar.metric("配置总数", stats['total_configs'])
-        
-        if stats['type_stats']:
-            st.sidebar.markdown("**按类型统计:**")
-            for analysis_type, count in stats['type_stats'].items():
-                st.sidebar.write(f"• {analysis_type}: {count}")
-        
-        if stats['most_used']:
-            st.sidebar.markdown(f"**最常用配置:** {stats['most_used'][0]} ({stats['most_used'][1]}次)")
-
 def render_sidebar_config_panel():
     """渲染侧边栏配置面板"""
     # 配置管理
     render_config_manager()
     
     # 保存当前配置
-    save_current_config()
-    
-    # 配置统计
-    render_config_stats() 
+    save_current_config() 

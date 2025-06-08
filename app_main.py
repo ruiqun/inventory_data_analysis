@@ -157,38 +157,28 @@ def handle_dimension_selection():
                     if st.button(LANG["next_step"], type="primary"):
                         st.session_state.selected_dimensions = selected_dimensions
                         st.session_state.dimensions_confirmed = True
-                        # 添加页面自动滚动到第四步标题位置
-                        st.markdown("""
-                        <script>
-                        setTimeout(function() {
-                            // 查找包含"第四步"或"配置分析参数"的标题元素
-                            const elements = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
-                            let targetElement = null;
-                            for (let element of elements) {
-                                if (element.textContent.includes('第四步') || element.textContent.includes('配置分析参数')) {
-                                    targetElement = element;
-                                    break;
-                                }
-                            }
-                            
-                            if (targetElement) {
-                                // 滚动到第四步标题位置，留一些顶部空间
-                                const offsetTop = targetElement.offsetTop - 80;
-                                window.scrollTo(0, Math.max(0, offsetTop));
-                                console.log('滚动到第四步位置:', offsetTop);
-                            } else {
-                                // 如果找不到第四步标题，则滚动到顶部
-                                window.scrollTo(0, 0);
-                                console.log('未找到第四步标题，滚动到顶部');
-                            }
-                        }, 500);
-                        </script>
-                        """, unsafe_allow_html=True)
+                        # 标记需要滚动到第四步
+                        st.session_state.scroll_to_step4 = True
                         st.rerun()
 
 def handle_analysis_configuration():
     """处理分析配置"""
     st.subheader("⚙️ 第四步：配置分析参数")
+    st.markdown("<div id='step4'></div>", unsafe_allow_html=True)
+    
+    # 检查是否需要滚动到第四步
+    if st.session_state.get('scroll_to_step4', False):
+        st.session_state.scroll_to_step4 = False  # 清除标记
+        st.markdown("""
+        <script>
+        setTimeout(function() {
+            var target = document.getElementById('step4');
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+            }
+        }, 100);
+        </script>
+        """, unsafe_allow_html=True)
     
     selected_dimensions = st.session_state.get('selected_dimensions', [])
     uploaded_file = st.session_state.get('uploaded_file')
@@ -261,31 +251,8 @@ def handle_analysis_configuration():
         if st.button(LANG["start_analysis"], type="primary", use_container_width=True):
             st.session_state.dimension_configs = dimension_configs
             st.session_state.analysis_confirmed = True
-            # 页面自动滚动到第五步位置
-            st.markdown("""
-            <script>
-            setTimeout(function() {
-                // 查找包含"第五步"或"正在执行分析"的标题元素
-                const elements = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
-                let targetElement = null;
-                for (let element of elements) {
-                    if (element.textContent.includes('第五步') || element.textContent.includes('正在执行分析')) {
-                        targetElement = element;
-                        break;
-                    }
-                }
-                
-                if (targetElement) {
-                    // 滚动到执行分析标题位置，留一些顶部空间
-                    const offsetTop = targetElement.offsetTop - 80;
-                    window.scrollTo(0, offsetTop);
-                } else {
-                    // 如果找不到目标标题，则滚动到顶部
-                    window.scrollTo(0, 0);
-                }
-            }, 200);
-            </script>
-            """, unsafe_allow_html=True)
+            # 标记需要滚动到第五步
+            st.session_state.scroll_to_step5 = True
             st.rerun()
     else:
         st.warning("⚠️ 请完成所有必需的配置项")
@@ -293,6 +260,21 @@ def handle_analysis_configuration():
 def execute_analysis():
     """执行分析"""
     st.subheader("🚀 第五步：正在执行分析...")
+    st.markdown("<div id='step5'></div>", unsafe_allow_html=True)
+    
+    # 检查是否需要滚动到第五步
+    if st.session_state.get('scroll_to_step5', False):
+        st.session_state.scroll_to_step5 = False  # 清除标记
+        st.markdown("""
+        <script>
+        setTimeout(function() {
+            var target = document.getElementById('step5');
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+            }
+        }, 100);
+        </script>
+        """, unsafe_allow_html=True)
     
     # 获取数据和配置
     uploaded_file = st.session_state.get('uploaded_file')

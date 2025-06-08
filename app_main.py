@@ -18,6 +18,7 @@ sys.path.insert(0, current_dir)
 from config import *
 from utils import DataUtils, SessionStateManager, FileUtils
 from components.ui_components import UIComponents
+from components.config_manager import render_sidebar_config_panel
 from core.analysis_engine import AnalysisEngine, DimensionConfigManager
 from modules.report_generator import AnalysisReport
 
@@ -69,6 +70,9 @@ def render_sidebar():
         
         # 处理文件上传
         handle_file_upload(uploaded_file)
+        
+        # 存储文件名用于配置保存
+        st.session_state['uploaded_file_name'] = uploaded_file.name
     else:
         st.info("👆 请先上传Excel数据文件")
         
@@ -83,6 +87,9 @@ def render_sidebar():
             go_back_one_step()
     
     UIComponents.render_reset_button()
+    
+    # 配置管理面板
+    render_sidebar_config_panel()
 
 def render_main_content():
     """渲染主内容区域"""
@@ -253,6 +260,16 @@ def handle_analysis_configuration():
             st.session_state.analysis_confirmed = True
             # 标记需要滚动到第五步
             st.session_state.scroll_to_step5 = True
+            
+            # 自动保存当前配置
+            try:
+                from components.config_manager import save_configuration, generate_default_config_name
+                auto_config_name = f"自动保存_{generate_default_config_name()}"
+                save_configuration(auto_config_name)
+                st.toast("💾 配置已自动保存", icon="✅")
+            except Exception as e:
+                pass  # 静默失败，不影响主流程
+            
             st.rerun()
     else:
         st.warning("⚠️ 请完成所有必需的配置项")

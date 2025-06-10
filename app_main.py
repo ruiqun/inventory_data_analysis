@@ -93,50 +93,34 @@ def render_sidebar():
 
 def render_main_content():
     """渲染主内容区域"""
-    # 显示配置加载状态提示
-    if st.session_state.get('last_loaded_config_name'):
-        config_name = st.session_state.get('last_loaded_config_name')
-        analysis_type = st.session_state.get('analysis_type', '')
-        
-        with st.container():
-            st.info(f"🔄 **已加载配置**: {config_name} ({analysis_type})")
-            
-            col1, col2 = st.columns([4, 1])
-            with col2:
-                if st.button("✖️ 清除提示", key="clear_config_notice"):
-                    if 'last_loaded_config_name' in st.session_state:
-                        del st.session_state['last_loaded_config_name']
-                    st.rerun()
-        
-        st.markdown("---")
     
     if not st.session_state.get('uploaded_file'):
         # 步骤1: 等待文件上传
         st.info("👈 请在左侧上传Excel文件开始分析")
         
     elif not st.session_state.get('sheet_confirmed'):
-        # 步骤2: 选择数据源（Sheet）
+        # 选择数据源（Sheet）
         handle_sheet_selection()
         
     elif not st.session_state.get('analysis_type') or st.session_state.get('manual_back_to_step2'):
-        # 步骤2: 选择分析类型（或手动回退到此步骤）
+        # 步骤2: 选择分析类型（同时后台加载数据）
         if st.session_state.get('manual_back_to_step2'):
             # 清除临时回退标记
             del st.session_state.manual_back_to_step2
-        UIComponents.render_analysis_type_selection()
+        handle_analysis_type_selection_with_background_loading()
         
     elif not st.session_state.get('dimensions_confirmed'):
-        # 步骤4: 数据加载和预览，选择分析维度
+        # 步骤3: 数据预览，选择分析维度
         if 'uploaded_file' in st.session_state:
             handle_dimension_selection()
         
     elif not st.session_state.get('analysis_confirmed'):
-        # 步骤5: 配置分析参数
+        # 步骤4: 配置分析参数（包括前置处理、出入库分析和其他分析）
         if 'uploaded_file' in st.session_state:
             handle_analysis_configuration()
             
     else:
-        # 步骤6: 执行分析
+        # 步骤5: 执行分析
         if 'uploaded_file' in st.session_state:
             execute_analysis()
 
@@ -151,42 +135,90 @@ def handle_sheet_selection():
     if uploaded_file:
         sheet = UIComponents.render_sheet_selection_simple(uploaded_file)
 
+def handle_analysis_type_selection_with_background_loading():
+    """处理分析类型选择，同时后台加载数据"""
+    
+    # 显示分析类型选择界面（内部包含数据加载逻辑）
+    UIComponents.render_analysis_type_selection_with_loading()
+
+
+
 def handle_dimension_selection():
-    """处理数据加载和分析维度选择"""
+    """处理数据预览和分析维度选择"""
     analysis_type = st.session_state.get('analysis_type')
     analysis_name = st.session_state.get('analysis_name')
     
     if analysis_type and analysis_name:
-        # 加载数据预览
-        uploaded_file = st.session_state.get('uploaded_file')
-        selected_sheet = st.session_state.get('selected_sheet')
+        # 使用已加载的数据
+        df = st.session_state.get('loaded_data')
         
-        if uploaded_file and selected_sheet:
-            # 加载数据
-            sheet_name = str(selected_sheet) if selected_sheet is not None else ""
-            if sheet_name:
-                df = load_data_cached(uploaded_file, sheet_name)
+        if df is not None and not df.empty:
+            # 显示数据预览
+            st.subheader("📊 第三步：数据预览")
+            UIComponents.render_data_preview(df)
+            
+            # 选择分析维度
+            selected_dimensions = UIComponents.render_dimension_selection(analysis_type, analysis_name)
+            
+            # 检查数据是否加载完成
+            if not st.session_state.get('data_loaded', False):
+                st.warning("⏳ 数据仍在加载中，请稍候...")
+                st.button(LANG["next_step"], type="primary", disabled=True)
             else:
-                df = pd.DataFrame()
-            if not df.empty:
-                # 显示数据预览
-                st.subheader("📊 数据加载结果")
-                UIComponents.render_data_preview(df)
-                
-                # 选择分析维度
-                selected_dimensions = UIComponents.render_dimension_selection(analysis_type, analysis_name)
-                
+                # 为所有分析类型显示确认按钮
+                st.markdown("---")
                 if selected_dimensions:
-                    # 确认按钮
-                    if st.button(LANG["next_step"], type="primary"):
-                        st.session_state.selected_dimensions = selected_dimensions
+                    st.success(f"✅ 已选择 {len(selected_dimensions)} 个分析维度")
+                    if st.button(LANG["next_step"], type="primary", use_container_width=True):
+                        # 过滤掉已删除的EIQ分析，防止历史数据引起错误
+                        filtered_dimensions = [dim for dim in selected_dimensions 
+                                             if dim in ANALYSIS_DIMENSIONS or dim in PREPROCESSING_DIMENSIONS]
+                        st.session_state.selected_dimensions = filtered_dimensions
                         st.session_state.dimensions_confirmed = True
                         # 标记需要滚动到第四步
                         st.session_state.scroll_to_step4 = True
+                        
+                        # 添加自动滚动到第四步的逻辑
+                        st.markdown("""
+                        <script>
+                        setTimeout(function() {
+                            // 查找第四步标题元素
+                            const elements = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+                            let targetElement = null;
+                            for (let element of elements) {
+                                if (element.textContent.includes('第四步')) {
+                                    targetElement = element;
+                                    break;
+                                }
+                            }
+                            
+                            if (targetElement) {
+                                // 滚动到目标位置，留80px顶部空间
+                                const offsetTop = targetElement.offsetTop - 80;
+                                window.scrollTo(0, offsetTop);
+                            } else {
+                                // 回退到顶部滚动
+                                window.scrollTo(0, 0);
+                            }
+                        }, 200);
+                        </script>
+                        """, unsafe_allow_html=True)
+                        
                         st.rerun()
+                else:
+                    st.warning("⚠️ 请至少选择一个分析维度")
+                    st.button(LANG["next_step"], type="primary", disabled=True)
+        else:
+            st.error("❌ 数据未正确加载，请重新选择工作表")
+            if st.button("⬅️ 重新选择工作表", type="secondary"):
+                st.session_state.sheet_confirmed = False
+                st.session_state.selected_sheet = None
+                st.session_state.need_data_loading = False
+                st.session_state.data_loaded = False
+                st.rerun()
 
 def handle_analysis_configuration():
-    """处理分析配置"""
+    """处理所有分析配置（合并第四步和第五步）"""
     st.subheader("⚙️ 第四步：配置分析参数")
     st.markdown("<div id='step4'></div>", unsafe_allow_html=True)
     
@@ -205,69 +237,127 @@ def handle_analysis_configuration():
         """, unsafe_allow_html=True)
     
     selected_dimensions = st.session_state.get('selected_dimensions', [])
-    uploaded_file = st.session_state.get('uploaded_file')
-    selected_sheet = st.session_state.get('selected_sheet')
+    df = st.session_state.get('loaded_data')
     
     if not selected_dimensions:
         st.error("❌ 未找到选择的分析维度")
         return
     
-    # 加载数据
-    if selected_sheet is None:
-        st.error("❌ 未找到选择的工作表")
-        return
-    
-    sheet_name = str(selected_sheet)
-    df = load_data_cached(uploaded_file, sheet_name)
-    if df.empty:
-        st.error("❌ 数据加载失败")
+    # 使用已加载的数据
+    if df is None or df.empty:
+        st.error("❌ 数据未正确加载")
         return
     
     # 获取列名
     columns = list(df.columns)
     
-    # 配置各个维度
+    # 处理所有配置
     all_configs_valid = True
     dimension_configs = {}
     
-    for dimension in selected_dimensions:
-        # 为前置处理维度也添加配置界面
-        if dimension in PREPROCESSING_DIMENSIONS:
+    # 1. 首先处理前置处理步骤
+    preprocessing_dimensions = [dim for dim in selected_dimensions if dim in PREPROCESSING_DIMENSIONS]
+    if preprocessing_dimensions:
+        st.write("## 🧹 前置数据处理配置")
+        
+        for dimension in preprocessing_dimensions:
             st.write(f"### {PREPROCESSING_DIMENSIONS[dimension]['icon']} {dimension}")
+            col1, col2 = st.columns([3, 1])
             
-            if dimension == "异常数据清洗":
-                config_valid = UIComponents.render_data_cleaning_config(columns)
+            with col1:
+                if dimension == "异常数据清洗":
+                    config_valid = UIComponents.render_data_cleaning_config(columns)
+                    if config_valid:
+                        config = SessionStateManager.get_analysis_config(dimension)
+                        dimension_configs[dimension] = config
+                    else:
+                        all_configs_valid = False
+                elif dimension == "容器选择":
+                    st.info("📦 容器选择已在前置步骤配置完成")
+                    config = {
+                        'container_length': st.session_state.get("container_length", 600),
+                        'container_width': st.session_state.get("container_width", 400),
+                        'container_height': st.session_state.get("container_height", 300),
+                        'container_weight_limit': st.session_state.get("container_weight_limit", 30),
+                        'use_dividers': st.session_state.get("use_dividers") == "是",
+                        'selected_dividers': st.session_state.get("selected_dividers", [])
+                    }
+                    dimension_configs[dimension] = config
+            
+            with col2:
+                if dimension == "异常数据清洗" and config_valid:
+                    st.success("✅ **数据清洗配置完成**")
+                elif dimension == "容器选择":
+                    st.success("✅ **容器选择配置完成**")
+
+    # 2. 然后处理出入库分析配置
+    inout_dimensions = [dim for dim in selected_dimensions if dim in ["出库分析", "入库分析"]]
+    if inout_dimensions:
+        st.write("## 📈📥 出入库分析配置")
+        
+        for dimension in inout_dimensions:
+            st.write(f"### {ANALYSIS_DIMENSIONS[dimension]['icon']} {dimension}")
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                if dimension == "出库分析":
+                    config_valid = UIComponents.render_outbound_analysis_config(columns)
+                    if config_valid:
+                        config = SessionStateManager.get_analysis_config(dimension)
+                        dimension_configs[dimension] = config
+                    else:
+                        all_configs_valid = False
+                elif dimension == "入库分析":
+                    config_valid = UIComponents.render_inbound_analysis_config(columns)
+                    if config_valid:
+                        config = SessionStateManager.get_analysis_config(dimension)
+                        dimension_configs[dimension] = config
+                    else:
+                        all_configs_valid = False
+            
+            with col2:
+                if config_valid:
+                    st.success("✅ **分析配置完成**")
+
+    # 3. 最后处理其他分析配置
+    other_dimensions = [dim for dim in selected_dimensions 
+                      if dim not in PREPROCESSING_DIMENSIONS and dim not in ["出库分析", "入库分析"]
+                      and dim in ANALYSIS_DIMENSIONS]  # 添加安全检查，只处理存在的维度
+    if other_dimensions:
+        st.write("## 📊 其他分析配置")
+        
+        for dimension in other_dimensions:
+            st.write(f"### {ANALYSIS_DIMENSIONS[dimension]['icon']} {dimension}")
+            
+            # 根据维度类型渲染配置界面
+            if dimension == "装箱分析":
+                config_valid = UIComponents.render_packing_analysis_config(columns)
                 if config_valid:
                     config = SessionStateManager.get_analysis_config(dimension)
                     dimension_configs[dimension] = config
                 else:
                     all_configs_valid = False
-            elif dimension == "容器选择":
-                st.info("📦 容器选择已在前置步骤配置完成")
-                config = {
-                    'container_length': st.session_state.get("container_length", 600),
-                    'container_width': st.session_state.get("container_width", 400),
-                    'container_height': st.session_state.get("container_height", 300)
-                }
-                dimension_configs[dimension] = config
-            continue
-            
-        st.write(f"### {ANALYSIS_DIMENSIONS[dimension]['icon']} {dimension}")
-        
-        # 根据维度类型渲染配置界面
-        if dimension == "装箱分析":
-            config_valid = UIComponents.render_packing_analysis_config(columns)
-            if config_valid:
-                config = SessionStateManager.get_analysis_config(dimension)
-                dimension_configs[dimension] = config
+            elif dimension == "ABC分析":
+                config_valid = UIComponents.render_abc_analysis_config(columns)
+                if config_valid:
+                    config = SessionStateManager.get_analysis_config(dimension)
+                    dimension_configs[dimension] = config
+                else:
+                    all_configs_valid = False
+
+            elif dimension == "订单结构分析":
+                config_valid = UIComponents.render_order_structure_analysis_config(columns)
+                if config_valid:
+                    config = SessionStateManager.get_analysis_config(dimension)
+                    dimension_configs[dimension] = config
+                else:
+                    all_configs_valid = False
             else:
-                all_configs_valid = False
-        else:
-            # 其他维度的配置界面
-            st.info(f"💡 {dimension} 配置界面待完善...")
-            # 暂时使用默认配置
-            config = DimensionConfigManager.get_default_config(dimension)
-            dimension_configs[dimension] = config
+                # 其他维度的配置界面
+                st.info(f"💡 {dimension} 配置界面待完善...")
+                # 暂时使用默认配置
+                config = DimensionConfigManager.get_default_config(dimension)
+                dimension_configs[dimension] = config
     
     # 显示开始分析按钮
     if all_configs_valid:
@@ -322,7 +412,7 @@ def execute_analysis():
         return
     
     sheet_name = str(selected_sheet)
-    df = load_data_cached(uploaded_file, sheet_name)
+    df = load_data_cached(uploaded_file, sheet_name)  # 使用快速缓存函数，无UI干扰
     if df.empty:
         st.error("❌ 数据加载失败")
         return
@@ -330,7 +420,7 @@ def execute_analysis():
     # 创建分析引擎
     analysis_engine = AnalysisEngine(df)
     
-    # 分离前置处理和分析步骤
+    # 分离前置处理和分析步骤（添加安全检查，确保维度存在）
     preprocessing_steps = [dim for dim in selected_dimensions if dim in PREPROCESSING_DIMENSIONS]
     analysis_steps = [dim for dim in selected_dimensions if dim in ANALYSIS_DIMENSIONS]
     
@@ -374,9 +464,6 @@ def execute_analysis():
         # 显示分析摘要
         render_analysis_summary(analysis_engine)
         
-        # 生成报告
-        render_report_section(analysis_engine)
-        
     except Exception as e:
         st.error(f"❌ 分析过程中发生错误: {str(e)}")
         st.exception(e)
@@ -400,61 +487,13 @@ def render_analysis_summary(analysis_engine: AnalysisEngine):
         st.write("**已完成的分析步骤：**")
         for i, step in enumerate(summary["executed_steps"], 1):
             st.write(f"{i}. ✅ {step}")
+    
+    # 添加PDF报告生成按钮
+    st.markdown("---")
+    if st.button("📄 生成PDF报告", help="生成包含分析结果的PDF报告", type="primary"):
+        generate_pdf_report(analysis_engine)
 
-def render_report_section(analysis_engine: AnalysisEngine):
-    """渲染报告生成区域"""
-    st.write("## 📄 分析报告")
-    
-    # 导出数据按钮
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("📊 导出Excel数据", help="导出所有分析结果的Excel文件"):
-            export_excel_data(analysis_engine)
-    
-    with col2:
-        if st.button("📄 生成PDF报告", help="生成包含分析结果的PDF报告"):
-            generate_pdf_report(analysis_engine)
-    
-    with col3:
-        if st.button("🔄 重新分析", help="重新开始整个分析流程"):
-            reset_analysis()
 
-def export_excel_data(analysis_engine: AnalysisEngine):
-    """导出Excel数据"""
-    try:
-        with st.spinner("正在准备Excel数据..."):
-            export_data = analysis_engine.export_all_results()
-            
-            if not export_data:
-                st.warning("⚠️ 没有可导出的数据")
-                return
-            
-            # 创建Excel文件
-            from io import BytesIO
-            import xlsxwriter
-            
-            buffer = BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                for sheet_name, df in export_data.items():
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-            
-            buffer.seek(0)
-            
-            # 生成文件名
-            filename = FileUtils.generate_filename("分析结果", st.session_state.get('analysis_name', ''), "xlsx")
-            
-            st.download_button(
-                label="📥 下载Excel文件",
-                data=buffer.getvalue(),
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-            st.success("✅ Excel文件准备完成！点击上方按钮下载")
-            
-    except Exception as e:
-        st.error(f"❌ Excel导出失败: {str(e)}")
 
 def generate_pdf_report(analysis_engine: AnalysisEngine):
     """生成PDF报告"""
@@ -486,20 +525,39 @@ def go_back_one_step():
     """回上一步 - 保持已有选择"""
     # 根据当前状态判断回退到哪一步
     if st.session_state.get('analysis_confirmed'):
-        # 如果在第五步（执行分析），回退到第四步
+        # 如果在第六步（执行分析），回退到第五步
         st.session_state.analysis_confirmed = False
         # 保持dimension_configs，用户可能想修改配置
         # BUGFIX: 显式地将保存的配置恢复，以便UI组件可以加载它们
         if 'dimension_configs' in st.session_state:
+            # 先清除可能存在的widget键，避免冲突
+            packing_keys = [
+                "装箱分析_length_column", "装箱分析_width_column", 
+                "装箱分析_height_column", "装箱分析_inventory_column",
+                "装箱分析_weight_column", "装箱分析_data_unit", 
+                "装箱分析_weight_unit", "装箱分析_show_details"
+            ]
+            for key in packing_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
             for dimension, config in st.session_state.dimension_configs.items():
                 # 根据维度类型，恢复相应的session_state键值
                 if dimension == "装箱分析":
                     # 恢复装箱分析的配置
-                    st.session_state["装箱分析_length_column"] = config.get('length_column')
-                    st.session_state["装箱分析_width_column"] = config.get('width_column')
-                    st.session_state["装箱分析_height_column"] = config.get('height_column')
-                    st.session_state["装箱分析_inventory_column"] = config.get('inventory_column')
+                    if config.get('length_column'):
+                        st.session_state["装箱分析_length_column"] = config.get('length_column')
+                    if config.get('width_column'):
+                        st.session_state["装箱分析_width_column"] = config.get('width_column')
+                    if config.get('height_column'):
+                        st.session_state["装箱分析_height_column"] = config.get('height_column')
+                    if config.get('inventory_column'):
+                        st.session_state["装箱分析_inventory_column"] = config.get('inventory_column')
+                    if config.get('weight_column'):
+                        st.session_state["装箱分析_weight_column"] = config.get('weight_column')
+                    # 为数据单位和详细显示设置值，避免widget冲突
                     st.session_state["装箱分析_data_unit"] = config.get('data_unit', 'cm')
+                    st.session_state["装箱分析_weight_unit"] = config.get('weight_unit', 'kg')
                     st.session_state["装箱分析_show_details"] = config.get('show_details', True)
                 elif dimension == "异常数据清洗":
                     # 恢复异常数据清洗的配置
@@ -585,11 +643,91 @@ def reset_analysis():
 
 @st.cache_data
 def load_data_cached(uploaded_file, sheet_name: str) -> pd.DataFrame:
-    """缓存数据加载函数"""
+    """高性能缓存数据加载函数（无UI元素，纯数据处理）"""
     try:
-        return DataUtils.load_excel_data(uploaded_file, sheet_name)
+        # 使用优化的读取参数，无UI提示
+        try:
+            # 先读取少量数据检查格式
+            sample_df = pd.read_excel(
+                uploaded_file, 
+                sheet_name=sheet_name, 
+                nrows=5,
+                engine='openpyxl'
+            )
+            
+            if sample_df.empty:
+                return pd.DataFrame()
+            
+            # 使用优化参数读取完整数据
+            df = pd.read_excel(
+                uploaded_file,
+                sheet_name=sheet_name,
+                engine='openpyxl',  # 使用更快的引擎
+                na_values=['', 'NULL', 'null', 'N/A', 'n/a', '#N/A', 'nan'],
+                keep_default_na=True
+            )
+            
+            # 安全的数据类型优化，避免PyArrow转换问题
+            for col in df.select_dtypes(include=['object']).columns:
+                try:
+                    # 只对非ID类型的重复字符串列进行category优化
+                    if (df[col].nunique() / len(df) < 0.3 and 
+                        not any(keyword in col.lower() for keyword in ['id', '号', 'code', 'sku', 'number'])):
+                        df[col] = df[col].astype('category')
+                except:
+                    # 如果转换失败，保持原始类型
+                    pass
+            
+            return df
+            
+        except Exception as load_error:
+            # 如果优化加载失败，使用基本方式
+            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+            return df
+            
     except Exception as e:
-        st.error(f"数据加载失败: {str(e)}")
+        # 返回空DataFrame而不是显示错误
+        return pd.DataFrame()
+
+def load_data_with_progress(uploaded_file, sheet_name: str) -> pd.DataFrame:
+    """带进度显示的数据加载函数"""
+    # 创建进度提示容器
+    progress_container = st.empty()
+    
+    try:
+        # 第一步：检查文件格式
+        progress_container.info("🔍 正在检查文件格式...")
+        
+        # 第二步：快速加载数据
+        progress_container.info("📊 正在快速加载数据...")
+        
+        # 调用缓存的数据加载函数
+        df = load_data_cached(uploaded_file, sheet_name)
+        
+        if df.empty:
+            progress_container.warning(f"⚠️ 工作表 {sheet_name} 为空")
+            return df
+        
+        # 第三步：完成加载
+        progress_container.info("⚡ 正在优化数据类型...")
+        
+        # 短暂延迟以显示进度（优化：减少延迟时间）
+        import time
+        time.sleep(0.2)
+        
+        # 清除进度提示
+        progress_container.empty()
+        
+        # 显示最终结果
+        rows, cols = df.shape
+        memory_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
+        st.success(f"✅ 高速加载完成！{rows:,} 行 × {cols} 列，内存占用: {memory_mb:.2f} MB")
+        
+        return df
+        
+    except Exception as e:
+        progress_container.empty()
+        st.error(f"❌ 数据加载失败: {str(e)}")
         return pd.DataFrame()
 
 if __name__ == "__main__":

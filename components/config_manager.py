@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-配置管理组件 - 提供配置保存、加载、删除的界面
+配置管理组件 - 简化版，只保留保存功能
 """
 
 import streamlit as st
@@ -10,362 +10,15 @@ from typing import Dict, List, Any, Optional
 from utils.config_database import config_db
 
 def render_config_manager():
-    """渲染配置管理界面"""
+    """渲染配置管理界面 - 简化版，只保留保存功能"""
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📊 配置管理")
+    st.sidebar.subheader("💾 保存配置")
     
-    # 获取最近的配置
-    recent_configs = config_db.get_recent_configs(limit=5)
-    
-    if recent_configs:
-        st.sidebar.markdown("**🔄 最近使用的配置**")
-        
-        for config in recent_configs:
-            with st.sidebar.container():
-                # 配置信息展示
-                st.markdown(f"**{config['config_name']}**")
-                st.caption(f"""
-                🎯 {config['analysis_name']}  
-                📄 {config['file_name'] or '无文件'}
-                """)
-                
-                # 操作按钮
-                col1, col2 = st.sidebar.columns(2)
-                
-                with col1:
-                    if st.button("🔄 加载", key=f"load_{config['id']}", help="加载此配置", use_container_width=True):
-                        success = load_configuration(config['id'])
-                        if success:
-                            st.sidebar.success("✅ 配置已加载！")
-                        st.rerun()
-                
-                with col2:
-                    if st.button("📋 详情", key=f"quick_detail_{config['id']}", help="查看配置详情", use_container_width=True):
-                        show_config_quick_detail(config)
-                
-                st.markdown("---")
-    
-    else:
-        st.sidebar.info("📝 还没有保存的配置")
-    
-    # 配置搜索和管理
-    with st.sidebar.expander("🔍 配置搜索与管理"):
-        render_config_search()
-    
-    # 配置导入导出
-    with st.sidebar.expander("📤 配置导入导出"):
-        render_import_export_section()
-
-def render_import_export_section():
-    """渲染配置导入导出界面"""
-    # 导出配置
-    st.markdown("**📤 导出配置**")
-    
-    # 选择要导出的配置
-    all_configs = config_db.get_recent_configs(limit=50)  # 获取所有配置
-    
-    if all_configs:
-        config_options = {
-            f"{config['config_name']} ({config['analysis_name']})": config['id'] 
-            for config in all_configs
-        }
-        
-        selected_config_name = st.selectbox(
-            "选择要导出的配置",
-            options=list(config_options.keys()),
-            help="选择一个配置导出为JSON文件"
-        )
-        
-        if st.button("📤 导出选中配置", use_container_width=True):
-            config_id = config_options[selected_config_name]
-            export_config(config_id)
-        
-        if st.button("📤 导出所有配置", use_container_width=True):
-            export_all_configs()
-    else:
-        st.info("没有可导出的配置")
-    
-    st.markdown("---")
-    
-    # 导入配置
-    st.markdown("**📥 导入配置**")
-    
-    uploaded_config = st.file_uploader(
-        "选择配置文件",
-        type=['json'],
-        help="上传之前导出的配置JSON文件"
-    )
-    
-    if uploaded_config:
-        if st.button("📥 导入配置", use_container_width=True):
-            import_config(uploaded_config)
-
-def export_config(config_id: int):
-    """导出单个配置"""
-    try:
-        config = config_db.load_config(config_id)
-        if config:
-            # 准备导出数据
-            export_data = {
-                'export_type': 'single_config',
-                'export_time': datetime.now().isoformat(),
-                'config': config
-            }
-            
-            # 生成文件名
-            safe_name = config['config_name'].replace(' ', '_').replace('/', '_')
-            filename = f"配置_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            
-            # 提供下载
-            st.download_button(
-                label=f"💾 下载 {config['config_name']}",
-                data=json.dumps(export_data, ensure_ascii=False, indent=2),
-                file_name=filename,
-                mime="application/json",
-                use_container_width=True
-            )
-            
-            st.success("✅ 配置已准备好下载！")
-        else:
-            st.error("❌ 配置不存在")
-    except Exception as e:
-        st.error(f"❌ 导出失败: {str(e)}")
-
-def export_all_configs():
-    """导出所有配置"""
-    try:
-        all_configs = config_db.get_recent_configs(limit=1000)  # 获取所有配置
-        
-        if all_configs:
-            # 准备导出数据
-            export_data = {
-                'export_type': 'all_configs',
-                'export_time': datetime.now().isoformat(),
-                'total_count': len(all_configs),
-                'configs': all_configs
-            }
-            
-            # 生成文件名
-            filename = f"所有配置_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            
-            # 提供下载
-            st.download_button(
-                label=f"💾 下载所有配置 ({len(all_configs)}个)",
-                data=json.dumps(export_data, ensure_ascii=False, indent=2),
-                file_name=filename,
-                mime="application/json",
-                use_container_width=True
-            )
-            
-            st.success(f"✅ {len(all_configs)} 个配置已准备好下载！")
-        else:
-            st.warning("⚠️ 没有可导出的配置")
-    except Exception as e:
-        st.error(f"❌ 导出失败: {str(e)}")
-
-def import_config(uploaded_file):
-    """导入配置"""
-    try:
-        # 读取文件内容
-        content = uploaded_file.read().decode('utf-8')
-        data = json.loads(content)
-        
-        # 验证文件格式
-        if 'export_type' not in data:
-            st.error("❌ 无效的配置文件格式")
-            return
-        
-        export_type = data['export_type']
-        imported_count = 0
-        
-        if export_type == 'single_config':
-            # 导入单个配置
-            config = data.get('config', {})
-            if import_single_config(config):
-                imported_count = 1
-        
-        elif export_type == 'all_configs':
-            # 导入多个配置
-            configs = data.get('configs', [])
-            for config in configs:
-                if import_single_config(config):
-                    imported_count += 1
-        
-        else:
-            st.error("❌ 不支持的导出类型")
-            return
-        
-        if imported_count > 0:
-            st.success(f"✅ 成功导入 {imported_count} 个配置！")
-            st.rerun()  # 刷新界面
-        else:
-            st.warning("⚠️ 没有成功导入任何配置")
-            
-    except json.JSONDecodeError:
-        st.error("❌ 配置文件格式错误")
-    except Exception as e:
-        st.error(f"❌ 导入失败: {str(e)}")
-
-def import_single_config(config: Dict[str, Any]) -> bool:
-    """导入单个配置"""
-    try:
-        # 检查必需字段
-        required_fields = ['config_name', 'analysis_type', 'analysis_name']
-        for field in required_fields:
-            if field not in config:
-                st.warning(f"⚠️ 配置 {config.get('config_name', '未知')} 缺少必需字段: {field}")
-                return False
-        
-        # 生成新的配置名（避免重复）
-        original_name = config['config_name']
-        new_name = f"{original_name}_导入_{datetime.now().strftime('%m%d_%H%M')}"
-        
-        # 保存配置
-        config_id = config_db.save_config(
-            config_name=new_name,
-            file_name=config.get('file_name'),
-            sheet_name=config.get('sheet_name'),
-            analysis_type=config['analysis_type'],
-            analysis_name=config['analysis_name'],
-            selected_dimensions=config.get('selected_dimensions', []),
-            dimension_configs=config.get('dimension_configs', {}),
-            container_config=config.get('container_config', {})
-        )
-        
-        return config_id > 0
-        
-    except Exception as e:
-        st.warning(f"⚠️ 导入配置失败: {str(e)}")
-        return False
-
-def render_config_search():
-    """渲染配置搜索界面"""
-    # 搜索条件
-    search_keyword = st.text_input("🔍 搜索配置", placeholder="输入配置名称或文件名")
-    
-    analysis_types = ["", "装箱分析", "异常数据清洗"]
-    selected_type = st.selectbox("🎯 分析类型", options=analysis_types)
-    
-    # 搜索按钮
-    if st.button("🔍 搜索配置") or search_keyword:
-        search_type = selected_type if selected_type else None
-        configs = config_db.search_configs(
-            keyword=search_keyword if search_keyword else None,
-            analysis_type=search_type
-        )
-        
-        if configs:
-            st.markdown(f"**找到 {len(configs)} 个配置：**")
-            
-            for config in configs:
-                with st.container():
-                    # 配置详细信息
-                    st.markdown(f"**{config['config_name']}**")
-                    st.caption(f"""
-                    📄 文件: {config['file_name'] or '未知'}  
-                    📋 工作表: {config['sheet_name'] or '未知'}  
-                    🎯 分析: {config['analysis_name']}  
-                    📅 创建时间: {config['created_at']}
-                    """)
-                    
-                    # 操作按钮
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        if st.button("🔄 加载", key=f"search_load_{config['id']}"):
-                            load_configuration(config['id'])
-                            st.rerun()
-                    
-                    with col2:
-                        if st.button("📋 详情", key=f"detail_{config['id']}"):
-                            show_config_detail(config)
-                    
-                    with col3:
-                        if st.button("🗑️ 删除", key=f"delete_{config['id']}"):
-                            if config_db.delete_config(config['id']):
-                                st.success("配置已删除！")
-                                st.rerun()
-                            else:
-                                st.error("删除失败！")
-                    
-                    st.markdown("---")
-        else:
-            st.info("未找到匹配的配置")
-
-def show_config_detail(config: Dict[str, Any]):
-    """显示配置详情"""
-    st.markdown(f"### 📋 配置详情: {config['config_name']}")
-    
-    # 基本信息
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**📄 基本信息**")
-        st.write(f"📝 配置名称: {config['config_name']}")
-        st.write(f"📄 文件名: {config['file_name'] or '未指定'}")
-        st.write(f"📋 工作表: {config['sheet_name'] or '未指定'}")
-        st.write(f"🎯 分析类型: {config['analysis_type']}")
-        st.write(f"📊 分析名称: {config['analysis_name']}")
-    
-    with col2:
-        st.markdown("**📊 基本信息**")
-        st.write(f"📅 创建时间: {config['created_at']}")
-        st.write(f"🕒 最后使用: {config['last_used']}")
-        st.write(f"🎯 分析类型: {config['analysis_type']}")
-        st.write(f"📊 分析名称: {config['analysis_name']}")
-    
-    # 维度信息
-    if config['selected_dimensions']:
-        st.markdown("**📐 选择的维度**")
-        st.write(", ".join(config['selected_dimensions']))
-    
-    # 详细配置
-    if config['dimension_configs']:
-        st.markdown("**⚙️ 维度配置**")
-        st.json(config['dimension_configs'])
-    
-    if config['container_config']:
-        st.markdown("**📦 容器配置**")
-        st.json(config['container_config'])
-
-def show_config_quick_detail(config: Dict[str, Any]):
-    """显示配置快速详情"""
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(f"**📋 {config['config_name']}**")
-    
-    # 基本信息
-    st.sidebar.write(f"🎯 分析类型: {config['analysis_type']}")
-    st.sidebar.write(f"📊 分析名称: {config['analysis_name']}")
-    st.sidebar.write(f"📄 原文件: {config['file_name'] or '未指定'}")
-    st.sidebar.write(f"📋 工作表: {config['sheet_name'] or '未指定'}")
-    
-    # 维度信息
-    if config['selected_dimensions']:
-        st.sidebar.write(f"📐 维度: {', '.join(config['selected_dimensions'])}")
-    
-    # 创建时间
-    st.sidebar.write(f"📅 创建时间: {config['created_at']}")
-    
-    # 快速应用按钮
-    if st.sidebar.button("🚀 一键应用此配置", key=f"apply_{config['id']}", use_container_width=True):
-        success = load_configuration(config['id'])
-        if success:
-            st.sidebar.success("✅ 配置已应用！")
-            # 添加滚动到顶部的JavaScript
-            st.markdown("""
-            <script>
-            setTimeout(function() {
-                window.scrollTo(0, 0);
-            }, 200);
-            </script>
-            """, unsafe_allow_html=True)
-        st.rerun()
+    # 保存当前配置
+    save_current_config()
 
 def save_current_config():
     """保存当前配置"""
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("💾 保存当前配置")
-    
     # 检查是否有可保存的配置
     if not check_saveable_config():
         st.sidebar.info("📝 请先完成配置才能保存")
@@ -421,8 +74,22 @@ def save_configuration(config_name: str):
             container_config = {
                 'container_length': st.session_state.get('container_length'),
                 'container_width': st.session_state.get('container_width'),
-                'container_height': st.session_state.get('container_height')
+                'container_height': st.session_state.get('container_height'),
+                'container_weight_limit': st.session_state.get('container_weight_limit'),
+                'selected_container_size': st.session_state.get('selected_container_size'),
+                'selected_container_weight_limit': st.session_state.get('selected_container_weight_limit'),
+                'use_dividers': st.session_state.get('use_dividers') == "是",
+                'selected_dividers': st.session_state.get('selected_dividers', [])
             }
+        
+        # 处理维度配置中的日期对象
+        dimension_configs = st.session_state.get('dimension_configs', {}).copy()
+        for dimension, config in dimension_configs.items():
+            if isinstance(config, dict):
+                for key, value in config.items():
+                    # 将日期对象转换为字符串
+                    if hasattr(value, 'strftime'):  # 检查是否是日期对象
+                        dimension_configs[dimension][key] = value.strftime('%Y-%m-%d')
         
         # 保存到数据库
         config_id = config_db.save_config(
@@ -432,7 +99,7 @@ def save_configuration(config_name: str):
             analysis_type=st.session_state.get('analysis_type'),
             analysis_name=st.session_state.get('analysis_name'),
             selected_dimensions=st.session_state.get('selected_dimensions'),
-            dimension_configs=st.session_state.get('dimension_configs'),
+            dimension_configs=dimension_configs,
             container_config=container_config
         )
         
@@ -484,9 +151,7 @@ def load_configuration(config_id: int):
                 if key in st.session_state:
                     del st.session_state[key]
         
-        # 设置配置加载状态提示
-        st.session_state['last_loaded_config_name'] = config['config_name']
-        st.session_state['last_loaded_config_id'] = config['id']
+
         
         # 显示成功信息
         st.success(f"✅ 已加载配置: {config['config_name']}")
@@ -506,81 +171,154 @@ def load_configuration(config_id: int):
 
 def restore_dimension_configs_to_session(dimension_configs: Dict[str, Any]):
     """将维度配置恢复到session_state中"""
-    analysis_type = st.session_state.get('analysis_type')
+    selected_dimensions = st.session_state.get('selected_dimensions', [])
     
-    if analysis_type == '装箱分析':
-        restore_packing_configs(dimension_configs)
-    elif analysis_type == '异常数据清洗':
-        restore_cleaning_configs(dimension_configs)
-
-def restore_packing_configs(dimension_configs: Dict[str, Any]):
-    """恢复装箱分析配置"""
-    prefix = '装箱分析_'
+    # 先清除可能存在的装箱分析配置键，避免widget冲突
+    packing_keys = [
+        "装箱分析_length_column", "装箱分析_width_column", 
+        "装箱分析_height_column", "装箱分析_inventory_column",
+        "装箱分析_weight_column", "装箱分析_data_unit", 
+        "装箱分析_weight_unit", "装箱分析_show_details"
+    ]
+    for key in packing_keys:
+        if key in st.session_state:
+            del st.session_state[key]
     
-    # 映射配置键
-    key_mapping = {
-        'length_column': f'{prefix}length_column',
-        'width_column': f'{prefix}width_column',
-        'height_column': f'{prefix}height_column',
-        'quantity_column': f'{prefix}quantity_column',
-        'data_unit': f'{prefix}data_unit',
-        'use_weight': f'{prefix}use_weight',
-        'weight_column': f'{prefix}weight_column'
-    }
+    # 清除异常数据清洗相关的配置键
+    cleaning_keys = [
+        "异常数据清洗_all_conditions", "异常数据清洗_overall_logic",
+        "异常数据清洗_overall_group_logic", "异常数据清洗_group_count"
+    ]
+    for key in cleaning_keys:
+        if key in st.session_state:
+            del st.session_state[key]
     
-    for config_key, session_key in key_mapping.items():
-        if config_key in dimension_configs:
-            st.session_state[session_key] = dimension_configs[config_key]
-
-def restore_cleaning_configs(dimension_configs: Dict[str, Any]):
-    """恢复异常数据清洗配置"""
-    # 恢复条件组数量
-    if 'group_count' in dimension_configs:
-        st.session_state['group_count'] = dimension_configs['group_count']
+    # 清除出库分析相关的配置键
+    outbound_keys = [
+        "出库分析_date_column", "出库分析_order_data_type", "出库分析_order_id_column",
+        "出库分析_order_count_column", "出库分析_sku_data_type", "出库分析_sku_column",
+        "出库分析_sku_count_column", "出库分析_item_data_type", "出库分析_item_column",
+        "出库分析_item_count_column", "出库分析_start_date", "出库分析_end_date"
+    ]
+    for key in outbound_keys:
+        if key in st.session_state:
+            del st.session_state[key]
     
-    # 恢复每组的条件
-    if 'groups' in dimension_configs:
-        groups = dimension_configs['groups']
-        
-        for group_idx, group_config in enumerate(groups):
-            if group_idx < len(groups):
-                group_key = f'group_{group_idx + 1}'
-                
-                # 恢复条件数量
-                if 'condition_count' in group_config:
-                    st.session_state[f'{group_key}_condition_count'] = group_config['condition_count']
-                
-                # 恢复条件详情
-                if 'conditions' in group_config:
-                    conditions = group_config['conditions']
-                    
-                    for cond_idx, condition in enumerate(conditions):
-                        if cond_idx < len(conditions):
-                            cond_prefix = f'{group_key}_condition_{cond_idx + 1}_'
+    # 清除入库分析相关的配置键
+    inbound_keys = [
+        "入库分析_date_column", "入库分析_sku_data_type", "入库分析_sku_column",
+        "入库分析_sku_count_column", "入库分析_quantity_data_type", "入库分析_quantity_column",
+        "入库分析_quantity_count_column", "入库分析_start_date", "入库分析_end_date"
+    ]
+    for key in inbound_keys:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # 清除ABC分析相关的配置键
+    abc_keys = [
+        "ABC分析_sku_column", "ABC分析_quantity_column", 
+        "ABC分析_a_percentage", "ABC分析_b_percentage"
+    ]
+    for key in abc_keys:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # 清除所有条件相关的键
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and key.startswith("condition_") and "异常数据清洗" in key:
+            del st.session_state[key]
+    
+    # 遍历每个维度的配置
+    for dimension, config in dimension_configs.items():
+        if dimension == '装箱分析':
+            # 恢复装箱分析的配置
+            if config.get('length_column'):
+                st.session_state["装箱分析_length_column"] = config.get('length_column')
+            if config.get('width_column'):
+                st.session_state["装箱分析_width_column"] = config.get('width_column')
+            if config.get('height_column'):
+                st.session_state["装箱分析_height_column"] = config.get('height_column')
+            if config.get('inventory_column'):
+                st.session_state["装箱分析_inventory_column"] = config.get('inventory_column')
+            if config.get('weight_column'):
+                st.session_state["装箱分析_weight_column"] = config.get('weight_column')
+            # 为数据单位和详细显示设置值，避免widget冲突
+            st.session_state["装箱分析_data_unit"] = config.get('data_unit', 'cm')
+            st.session_state["装箱分析_weight_unit"] = config.get('weight_unit', 'kg')
+            st.session_state["装箱分析_show_details"] = config.get('show_details', True)
+        elif dimension == '出库分析':
+            # 恢复出库分析的配置 - 修复方式，恢复所有已保存的值（包括"无数据"）
+            for key in ['出库分析_date_column', '出库分析_order_data_type', 
+                       '出库分析_order_id_column', '出库分析_order_count_column',
+                       '出库分析_sku_data_type', '出库分析_sku_column', 
+                       '出库分析_sku_count_column', '出库分析_item_data_type',
+                       '出库分析_item_column', '出库分析_item_count_column']:
+                if key in config:  # 只要配置中存在这个键，就恢复（包括"无数据"值）
+                    st.session_state[key] = config[key]
+            
+            # 特殊处理日期配置
+            for date_key in ['出库分析_start_date', '出库分析_end_date']:
+                if config.get(date_key):
+                    date_value = config.get(date_key)
+                    if isinstance(date_value, str):
+                        from datetime import datetime
+                        date_value = datetime.strptime(date_value, '%Y-%m-%d').date()
+                    st.session_state[date_key] = date_value
+        elif dimension == '入库分析':
+            # 恢复入库分析的配置 - 修复方式，恢复所有已保存的值（包括"无数据"）
+            for key in ['入库分析_date_column', '入库分析_sku_data_type', 
+                       '入库分析_sku_column', '入库分析_sku_count_column',
+                       '入库分析_quantity_data_type', '入库分析_quantity_column', 
+                       '入库分析_quantity_count_column']:
+                if key in config:  # 只要配置中存在这个键，就恢复（包括"无数据"值）
+                    st.session_state[key] = config[key]
+            
+            # 特殊处理日期配置
+            for date_key in ['入库分析_start_date', '入库分析_end_date']:
+                if config.get(date_key):
+                    date_value = config.get(date_key)
+                    if isinstance(date_value, str):
+                        from datetime import datetime
+                        date_value = datetime.strptime(date_value, '%Y-%m-%d').date()
+                    st.session_state[date_key] = date_value
+        elif dimension == 'ABC分析':
+            # 恢复ABC分析的配置
+            for key in ['sku_column', 'quantity_column', 'a_percentage', 'b_percentage']:
+                config_key = f"ABC分析_{key}"
+                if key in config:  # 从配置中恢复值
+                    st.session_state[config_key] = config[key]
+        elif dimension == '异常数据清洗':
+            # 恢复异常数据清洗的配置
+            st.session_state["异常数据清洗_all_conditions"] = config.get('all_conditions', [])
+            st.session_state["异常数据清洗_overall_logic"] = config.get('overall_logic', 'OR')
+            st.session_state["异常数据清洗_overall_group_logic"] = config.get('overall_logic', 'OR')
+            
+            # 恢复条件组的详细配置
+            all_conditions = config.get('all_conditions', [])
+            if all_conditions:
+                st.session_state["异常数据清洗_group_count"] = len(all_conditions)
+                for group_idx, group_conditions in enumerate(all_conditions, 1):
+                    if group_conditions:
+                        st.session_state[f"condition_count_异常数据清洗_{group_idx}"] = len(group_conditions)
+                        for cond_idx, condition in enumerate(group_conditions):
+                            prefix = f"condition_异常数据清洗_{group_idx}_{cond_idx}"
+                            st.session_state[f"{prefix}_columns"] = condition.get('columns', [])
+                            operator = condition.get('operator', '>')
+                            st.session_state[f"{prefix}_operator"] = operator
+                            value = condition.get('value', 0)
                             
-                            # 恢复基本条件信息
-                            for key in ['column', 'operator', 'data_type']:
-                                if key in condition:
-                                    st.session_state[f'{cond_prefix}{key}'] = condition[key]
-                            
-                            # 恢复条件值（根据操作符类型）
-                            operator = condition.get('operator', '')
-                            if operator in ['范围内', '范围外']:
-                                if 'min_value' in condition:
-                                    st.session_state[f'{cond_prefix}min'] = condition['min_value']
-                                if 'max_value' in condition:
-                                    st.session_state[f'{cond_prefix}max'] = condition['max_value']
-                            elif operator in ['包含', '不包含', '开头是', '结尾是']:
-                                if 'text_value' in condition:
-                                    st.session_state[f'{cond_prefix}text'] = condition['text_value']
+                            # 根据操作符类型，恢复对应的值键
+                            if operator in ["in_range", "not_in_range"] and isinstance(value, list) and len(value) == 2:
+                                st.session_state[f"{prefix}_min"] = value[0]
+                                st.session_state[f"{prefix}_max"] = value[1]
+                                st.session_state[f"{prefix}_type"] = "整数" if isinstance(value[0], int) else "小数"
+                            elif operator in ["contains", "not_contains"]:
+                                st.session_state[f"{prefix}_text"] = str(value)
                             else:
-                                if 'value' in condition:
-                                    st.session_state[f'{cond_prefix}value'] = condition['value']
+                                st.session_state[f"{prefix}_value"] = value
+                                st.session_state[f"{prefix}_type"] = "整数" if isinstance(value, int) else "小数"
 
 def render_sidebar_config_panel():
     """渲染侧边栏配置面板"""
     # 配置管理
-    render_config_manager()
-    
-    # 保存当前配置
-    save_current_config() 
+    render_config_manager() 

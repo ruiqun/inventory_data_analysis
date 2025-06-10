@@ -89,14 +89,26 @@ ANALYSIS_DIMENSIONS = {
         "icon": "🎯",
         "method": "hit_rate_analysis",
         "config_type": "hit_rate_analysis"
+    },
+    "出库分析": {
+        "description": "分析出库数据的时间序列趋势，包括日出订单数、SKU数、件数等指标",
+        "icon": "📈",
+        "method": "outbound_analysis",
+        "config_type": "outbound_analysis"
+    },
+    "入库分析": {
+        "description": "分析入库数据的时间序列趋势，包括日入SKU数、件数等指标",
+        "icon": "📥",
+        "method": "inbound_analysis", 
+        "config_type": "inbound_analysis"
     }
 }
 
 # 分析类型对应的维度
 ANALYSIS_TYPE_DIMENSIONS = {
-    "inventory": ["ABC分析", "装箱分析", "容器对比分析"],
-    "inbound": ["装箱分析", "SKU件数分析", "入库箱数分析", "容器对比分析"],
-    "outbound": ["订单结构分析", "ABC分析", "单件多件分析", "命中率分析", "容器对比分析"]
+    "inventory": ["ABC分析", "装箱分析"],
+    "inbound": ["入库分析", "ABC分析", "订单结构分析"],
+    "outbound": ["出库分析", "ABC分析", "订单结构分析"]
 }
 
 # 前置处理维度
@@ -135,10 +147,24 @@ LOGIC_OPERATORS = {
     "OR": "或"
 }
 
-# 容器规格配置 (单位: mm)
+# 容器规格配置 (单位: mm, kg)
 CONTAINER_SPECS = {
     "600x400x300": {"length": 600, "width": 400, "height": 300},
     "650x450x300": {"length": 650, "width": 450, "height": 300}
+}
+
+# 容器重量限制配置 (单位: kg)
+CONTAINER_WEIGHT_LIMITS = {
+    "30kg": 30,
+    "50kg": 50
+}
+
+# 容器隔口配置
+CONTAINER_DIVIDERS = {
+    "1": {"count": 1, "description": "1个隔口"},
+    "2": {"count": 2, "description": "2个隔口"},
+    "4": {"count": 4, "description": "4个隔口"},
+    "8": {"count": 8, "description": "8个隔口"}
 }
 
 # 装箱分析配置
@@ -148,6 +174,7 @@ PACKING_CONFIG = {
     "preview_rows": 30,  # 预览行数
     "batch_size": 50,  # 分批处理大小
     "unit_conversion": {"mm": 1, "cm": 10, "m": 1000},  # 单位转换系数
+    "weight_conversion": {"g": 0.001, "kg": 1},  # 重量单位转换系数（转换为kg）
     "size_limits": {
         "min_size_mm": 1,  # 最小尺寸(mm)
         "max_size_mm": 10000  # 最大尺寸(mm)
@@ -158,4 +185,41 @@ PACKING_CONFIG = {
 CLEANING_CONFIG = {
     "preview_rows": 10,  # 异常数据预览行数
     "large_dataset_threshold": 100  # 大数据集阈值
+}
+
+# ABC分析配置
+ABC_CONFIG = {
+    "default_a_percentage": 70,  # A类默认累计百分比
+    "default_b_percentage": 20,  # B类默认累计百分比
+    "default_c_percentage": 10,   # C类默认累计百分比
+    "classification_methods": {
+        "revenue": "收入分析（价值×数量）",
+        "quantity": "数量分析",
+        "value": "价值分析"
+    },
+    "sort_orders": {
+        "desc": "降序（从高到低）",
+        "asc": "升序（从低到高）"
+    },
+    "preview_rows": 20  # 结果预览行数
+}
+
+# EIQ分析配置
+EIQ_CONFIG = {
+    "analysis_periods": {
+        "daily": "日分析",
+        "weekly": "周分析", 
+        "monthly": "月分析",
+        "quarterly": "季度分析"
+    },
+    "entry_thresholds": [5, 10, 20, 50],  # 订单数量阈值选项
+    "item_thresholds": [3, 5, 10, 20],    # 单品数量阈值选项
+    "quantity_thresholds": [50, 100, 200, 500],  # 数量阈值选项
+    "order_size_bins": [0, 1, 5, 10, float('inf')],  # 订单规模分箱
+    "order_size_labels": ["单品订单", "小订单", "中订单", "大订单"],
+    "quantity_size_bins": [0, 10, 50, 200, float('inf')],  # 数量规模分箱
+    "quantity_size_labels": ["小量", "中量", "大量", "超大量"],
+    "frequency_bins": [0, 1, 5, 20, float('inf')],  # 频率分箱
+    "frequency_labels": ["低频", "中低频", "中高频", "高频"],
+    "preview_rows": 20  # 结果预览行数
 } 

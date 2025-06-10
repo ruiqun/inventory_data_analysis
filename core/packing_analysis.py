@@ -16,13 +16,15 @@ class PackingAnalyzer:
         初始化装箱分析器
         
         Args:
-            container_info: 容器信息字典，包含length, width, height, size, volume
+            container_info: 容器信息字典，包含length, width, height, size, volume, weight_limit
         """
         self.container_info = container_info
         # 容器配置中的尺寸已经是mm单位，无需转换
         self.container_length_mm = container_info['length']
         self.container_width_mm = container_info['width']  
         self.container_height_mm = container_info['height']
+        # 容器重量限制(kg)
+        self.container_weight_limit_kg = container_info.get('weight_limit', 30)
         
     def validate_goods_size(self, length, width, height):
         """
@@ -140,7 +142,7 @@ class PackingAnalyzer:
             
         return packing_options
         
-    def analyze_single_sku(self, goods_length, goods_width, goods_height, inventory_qty, sku_index):
+    def analyze_single_sku(self, goods_length, goods_width, goods_height, inventory_qty, sku_index, weight_kg=None):
         """
         分析单个SKU的装箱情况
         
@@ -148,6 +150,7 @@ class PackingAnalyzer:
             goods_length, goods_width, goods_height: 货物尺寸(mm)
             inventory_qty: 库存数量
             sku_index: SKU索引
+            weight_kg: 单件货物重量(kg)，可选
             
         Returns:
             dict: 装箱分析结果
@@ -159,8 +162,18 @@ class PackingAnalyzer:
         # 计算6种摆放方式
         packing_options = self.calculate_packing_options(goods_length, goods_width, goods_height)
         
-        # 取最大值
-        max_per_box = max(packing_options) if packing_options else 0
+        # 取最大值（基于尺寸的最大装箱数）
+        max_per_box_by_size = max(packing_options) if packing_options else 0
+        
+        # 如果有重量信息，还需要考虑重量限制
+        if weight_kg is not None and weight_kg > 0:
+            # 根据重量限制计算最大装箱数
+            max_per_box_by_weight = int(self.container_weight_limit_kg // weight_kg)
+            # 取两者的最小值
+            max_per_box = min(max_per_box_by_size, max_per_box_by_weight)
+        else:
+            max_per_box = max_per_box_by_size
+            max_per_box_by_weight = None
         
         # 计算需要的箱子数
         if max_per_box > 0 and inventory_qty > 0:
@@ -173,14 +186,17 @@ class PackingAnalyzer:
             'goods_length_mm': goods_length,
             'goods_width_mm': goods_width,
             'goods_height_mm': goods_height,
+            'weight_kg': weight_kg,
             'inventory_qty': inventory_qty,
             'packing_options': packing_options,
+            'max_per_box_by_size': max_per_box_by_size,
+            'max_per_box_by_weight': max_per_box_by_weight,
             'max_per_box': max_per_box,
             'boxes_needed': boxes_needed
         }
         
     def analyze_batch(self, df, length_column, width_column, height_column, 
-                     inventory_column, data_unit="cm"):
+                     inventory_column, data_unit="cm", weight_column=None, weight_unit="kg"):
         """
         批量分析装箱情况
         
@@ -189,12 +205,15 @@ class PackingAnalyzer:
             length_column, width_column, height_column: 尺寸列名
             inventory_column: 库存列名
             data_unit: 数据单位
+            weight_column: 重量列名（可选）
+            weight_unit: 重量单位
             
         Returns:
             tuple: (装箱结果列表, 处理的数据行数)
         """
         # 单位转换
         conversion_factor = PACKING_CONFIG["unit_conversion"][data_unit]
+        weight_conversion_factor = PACKING_CONFIG["weight_conversion"][weight_unit]
         
         # 提取并转换货物尺寸数据
         goods_length = pd.to_numeric(df[length_column], errors='coerce') * conversion_factor
@@ -202,8 +221,17 @@ class PackingAnalyzer:
         goods_height = pd.to_numeric(df[height_column], errors='coerce') * conversion_factor
         inventory_qty = pd.to_numeric(df[inventory_column], errors='coerce')
         
+        # 处理重量数据（如果提供）
+        goods_weight = None
+        if weight_column and weight_column in df.columns:
+            goods_weight = pd.to_numeric(df[weight_column], errors='coerce') * weight_conversion_factor
+        
         # 过滤掉无效数据
-        valid_mask = ~(goods_length.isna() | goods_width.isna() | goods_height.isna() | inventory_qty.isna())
+        if goods_weight is not None:
+            valid_mask = ~(goods_length.isna() | goods_width.isna() | goods_height.isna() | 
+                          inventory_qty.isna() | goods_weight.isna())
+        else:
+            valid_mask = ~(goods_length.isna() | goods_width.isna() | goods_height.isna() | inventory_qty.isna())
         valid_indices = df[valid_mask].index
         
         packing_results = []
@@ -215,9 +243,10 @@ class PackingAnalyzer:
             
             for idx in batch_indices:
                 try:
+                    weight_kg = goods_weight[idx] if goods_weight is not None else None
                     result = self.analyze_single_sku(
                         goods_length[idx], goods_width[idx], goods_height[idx],
-                        inventory_qty[idx], idx
+                        inventory_qty[idx], idx, weight_kg
                     )
                     if result:
                         packing_results.append(result)

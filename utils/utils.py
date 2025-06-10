@@ -6,7 +6,7 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Union
 
 class DataUtils:
     """数据处理工具类"""
@@ -14,7 +14,7 @@ class DataUtils:
     @staticmethod
     def load_excel_data(uploaded_file, sheet_name: str) -> pd.DataFrame:
         """
-        加载Excel数据（优化版 - 支持缓存和进度提示）
+        高性能加载Excel数据（优化版 - 支持缓存和性能优化）
         
         Args:
             uploaded_file: 上传的文件对象
@@ -30,34 +30,110 @@ class DataUtils:
             
             # 检查缓存
             if cache_key in st.session_state:
-                st.info(f"📋 使用缓存数据：{sheet_name}")
                 return st.session_state[cache_key]
             
-            # 显示加载进度
-            with st.spinner(f"📊 正在加载数据表：{sheet_name}..."):
-                # 尝试先读取一小部分数据检查文件
-                sample_df = pd.read_excel(uploaded_file, sheet_name=sheet_name, nrows=5)
-                
-                if sample_df.empty:
-                    st.warning(f"⚠️ 工作表 {sheet_name} 为空")
+            # 性能优化的Excel读取
+            with st.spinner(f"📊 正在高速加载数据表：{sheet_name}..."):
+                # 第一步：快速检查文件格式和数据量
+                try:
+                    # 使用openpyxl引擎，性能更好
+                    sample_df = pd.read_excel(
+                        uploaded_file, 
+                        sheet_name=sheet_name, 
+                        nrows=10,
+                        engine='openpyxl'  # 明确指定引擎
+                    )
+                    
+                    if sample_df.empty:
+                        st.warning(f"⚠️ 工作表 {sheet_name} 为空")
+                        return pd.DataFrame()
+                    
+                except Exception as e:
+                    st.error(f"❌ 文件格式检查失败: {str(e)}")
                     return pd.DataFrame()
                 
-                # 读取完整数据
-                df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
-                
-                # 缓存数据
-                st.session_state[cache_key] = df
-                
-                # 显示加载结果
-                rows, cols = df.shape
-                file_size = f"{df.memory_usage(deep=True).sum() / 1024:.1f} KB"
-                st.success(f"✅ 数据加载完成！{rows:,} 行 × {cols} 列，占用内存: {file_size}")
-                
-                return df
+                # 第二步：优化参数读取完整数据
+                try:
+                    # 使用优化参数加载
+                    df = pd.read_excel(
+                        uploaded_file,
+                        sheet_name=sheet_name,
+                        engine='openpyxl',  # 使用openpyxl引擎，通常比xlrd更快
+                        na_values=['', 'NULL', 'null', 'N/A', 'n/a', '#N/A'],  # 明确指定NA值
+                        keep_default_na=True  # 保持默认NA处理
+                    )
+                    
+                    # 第三步：数据类型优化（减少内存使用）
+                    df = DataUtils._optimize_dataframe_dtypes(df)
+                    
+                    # 缓存数据
+                    st.session_state[cache_key] = df
+                    
+                    # 显示加载结果
+                    rows, cols = df.shape
+                    file_size = f"{df.memory_usage(deep=True).sum() / 1024:.1f} KB"
+                    
+                    return df
+                    
+                except Exception as e:
+                    # 如果优化参数失败，回退到基本参数
+                    st.warning(f"⚠️ 使用基本模式加载...")
+                    df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+                    st.session_state[cache_key] = df
+                    return df
                 
         except Exception as e:
             st.error(f"❌ 读取Excel文件失败: {str(e)}")
             return pd.DataFrame()
+    
+    @staticmethod
+    def _optimize_dataframe_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        优化DataFrame的数据类型以减少内存使用
+        
+        Args:
+            df: 原始DataFrame
+            
+        Returns:
+            pd.DataFrame: 优化后的DataFrame
+        """
+        try:
+            # 优化数值列
+            for col in df.select_dtypes(include=['int64']).columns:
+                col_min = df[col].min()
+                col_max = df[col].max()
+                
+                # 选择最小的整数类型
+                if col_min >= -128 and col_max <= 127:
+                    df[col] = df[col].astype('int8')
+                elif col_min >= -32768 and col_max <= 32767:
+                    df[col] = df[col].astype('int16')
+                elif col_min >= -2147483648 and col_max <= 2147483647:
+                    df[col] = df[col].astype('int32')
+            
+            # 优化浮点列
+            for col in df.select_dtypes(include=['float64']).columns:
+                # 检查是否可以转换为float32而不丢失精度
+                original_values = df[col].dropna()
+                if len(original_values) > 0:
+                    converted = original_values.astype('float32')
+                    if original_values.equals(converted.astype('float64')):
+                        df[col] = df[col].astype('float32')
+            
+            # 优化字符串列
+            for col in df.select_dtypes(include=['object']).columns:
+                # 如果是字符串且重复值很多，转换为category
+                if df[col].dtype == 'object':
+                    num_unique_values = df[col].nunique()
+                    num_total_values = len(df[col])
+                    if num_total_values > 0 and num_unique_values / num_total_values < 0.5:
+                        df[col] = df[col].astype('category')
+            
+            return df
+            
+        except Exception:
+            # 如果优化失败，返回原始DataFrame
+            return df
     
     @staticmethod
     def get_excel_sheets_info(uploaded_file) -> Dict[str, Any]:
@@ -78,7 +154,7 @@ class DataUtils:
             if info_key in st.session_state:
                 return st.session_state[info_key]
             
-            # 读取Excel文件信息
+                                    # 读取Excel文件信息
             with st.spinner("🔍 正在分析Excel文件结构..."):
                 xls = pd.ExcelFile(uploaded_file)
                 sheet_names = xls.sheet_names
@@ -92,7 +168,7 @@ class DataUtils:
                         sheets_info[sheet_name] = {
                             'columns': len(sample_df.columns),
                             'has_data': not sample_df.empty,
-                            'sample_columns': list(sample_df.columns)[:5]  # 前5列
+                            'sample_columns': list(sample_df.columns)[:5] if not sample_df.empty else []  # 前5列
                         }
                     except Exception:
                         sheets_info[sheet_name] = {
@@ -100,7 +176,7 @@ class DataUtils:
                             'has_data': False,
                             'sample_columns': []
                         }
-                
+                    
                 info = {
                     'sheet_names': sheet_names,
                     'sheet_count': len(sheet_names),
@@ -115,6 +191,113 @@ class DataUtils:
         except Exception as e:
             st.error(f"❌ Excel文件分析失败: {str(e)}")
             return {'sheet_names': [], 'sheet_count': 0, 'sheets_info': {}}
+    
+    @staticmethod
+    def get_excel_sheets_names_only(uploaded_file) -> Dict[str, Any]:
+        """
+        仅获取Excel文件的工作表名称（快速版本）
+        
+        Args:
+            uploaded_file: 上传的文件对象
+            
+        Returns:
+            dict: 仅包含工作表名称的信息
+        """
+        try:
+            file_key = f"{uploaded_file.name}_{uploaded_file.size}"
+            names_key = f"excel_names_{file_key}"
+            
+            # 检查缓存
+            if names_key in st.session_state:
+                return st.session_state[names_key]
+            
+            # 仅读取工作表名称，不读取任何内容
+            with st.spinner("🔍 正在读取工作表名称..."):
+                xls = pd.ExcelFile(uploaded_file)
+                sheet_names = xls.sheet_names
+                
+                info = {
+                    'sheet_names': sheet_names,
+                    'sheet_count': len(sheet_names)
+                }
+                
+                # 缓存信息
+                st.session_state[names_key] = info
+                
+                return info
+                
+        except Exception as e:
+            st.error(f"❌ 读取Excel工作表名称失败: {str(e)}")
+            return {'sheet_names': [], 'sheet_count': 0}
+    
+    @staticmethod
+    def load_data_in_background(uploaded_file, sheet_name: str, progress_placeholder=None):
+        """
+        在后台加载数据（带进度提示）
+        
+        Args:
+            uploaded_file: 上传的文件对象
+            sheet_name: Sheet名称
+            progress_placeholder: 进度显示占位符
+            
+        Returns:
+            pd.DataFrame: 数据框
+        """
+        try:
+            # 创建文件缓存键
+            file_key = f"{uploaded_file.name}_{uploaded_file.size}_{sheet_name}"
+            cache_key = f"data_{file_key}"
+            
+            # 检查缓存
+            if cache_key in st.session_state:
+                if progress_placeholder:
+                    progress_placeholder.success("📋 使用缓存数据，加载完成！")
+                return st.session_state[cache_key]
+            
+            # 显示详细的加载进度
+            if progress_placeholder:
+                progress_placeholder.info(f"🔄 正在读取工作表：{sheet_name}")
+            
+            # 先尝试读取少量数据检查文件格式
+            try:
+                sample_df = pd.read_excel(uploaded_file, sheet_name=sheet_name, nrows=5)
+                if sample_df.empty:
+                    if progress_placeholder:
+                        progress_placeholder.warning(f"⚠️ 工作表 {sheet_name} 为空")
+                    return pd.DataFrame()
+                
+                total_rows = len(pd.read_excel(uploaded_file, sheet_name=sheet_name))
+                
+                if progress_placeholder:
+                    progress_placeholder.info(f"📊 检测到 {total_rows:,} 行数据，正在加载...")
+                
+            except Exception as e:
+                if progress_placeholder:
+                    progress_placeholder.error(f"❌ 文件格式检查失败: {str(e)}")
+                return pd.DataFrame()
+            
+            # 读取完整数据
+            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+            
+            # 缓存数据
+            st.session_state[cache_key] = df
+            
+            # 显示加载结果
+            rows, cols = df.shape
+            file_size = f"{df.memory_usage(deep=True).sum() / 1024:.1f} KB"
+            
+            if progress_placeholder:
+                progress_placeholder.success(f"✅ 数据加载完成！{rows:,} 行 × {cols} 列，占用内存: {file_size}")
+            
+            return df
+                
+        except Exception as e:
+            error_msg = f"❌ 数据加载失败: {str(e)}"
+            if progress_placeholder:
+                progress_placeholder.error(error_msg)
+            else:
+                st.error(error_msg)
+            return pd.DataFrame()
     
     @staticmethod
     def validate_columns_existence(df: pd.DataFrame, required_columns: List[str]) -> Tuple[bool, List[str]]:
@@ -225,7 +408,7 @@ class SessionStateManager:
                 st.session_state[key] = default_value
     
     @staticmethod
-    def clear_session_data(keys_to_clear: List[str] = None):
+    def clear_session_data(keys_to_clear: Optional[List[str]] = None):
         """
         清理Session数据
         
@@ -233,16 +416,36 @@ class SessionStateManager:
             keys_to_clear: 要清理的键列表，如果为None则清理所有数据缓存
         """
         if keys_to_clear is None:
-            keys_to_clear = ['sheet_confirmed', 'analysis_type', 'dimensions_confirmed', 
-                           'analysis_confirmed', 'selected_dimensions', 'analysis_name', 'data_loaded']
+            keys_to_clear = [
+                'sheet_confirmed', 'analysis_type', 'dimensions_confirmed', 
+                'analysis_confirmed', 'selected_dimensions', 'analysis_name', 
+                'data_loaded', 'loaded_data', 'need_data_loading', 'data_loading_progress',
+                'selected_sheet', 'uploaded_file', 'dimension_configs',
+                'data_loading_error', 'data_loading_triggered', 'loading_triggered'
+            ]
         
         for key in keys_to_clear:
             if key in st.session_state:
                 del st.session_state[key]
         
-        # 清理数据缓存
+                # 清理数据缓存（所有以data_开头的键）
         for key in list(st.session_state.keys()):
             if isinstance(key, str) and key.startswith('data_'):
+                del st.session_state[key]
+        
+        # 清理加载状态相关的键
+        loading_keys = [key for key in st.session_state.keys() if 'loading' in str(key).lower() or 'current_sheet' in str(key).lower()]
+        for key in loading_keys:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        # 清理分析配置相关的键
+        config_keys = [
+            key for key in st.session_state.keys() 
+            if any(prefix in str(key) for prefix in ['装箱分析_', 'ABC分析_', '异常数据清洗_', '出库分析_', '入库分析_'])
+        ]
+        for key in config_keys:
+            if key in st.session_state:
                 del st.session_state[key]
     
     @staticmethod
@@ -265,19 +468,74 @@ class SessionStateManager:
                 'width_column': st.session_state.get("装箱分析_width_column"),
                 'height_column': st.session_state.get("装箱分析_height_column"),
                 'inventory_column': st.session_state.get("装箱分析_inventory_column"),
+                'weight_column': st.session_state.get("装箱分析_weight_column"),
                 'data_unit': st.session_state.get("装箱分析_data_unit", "cm"),
+                'weight_unit': st.session_state.get("装箱分析_weight_unit", "kg"),
                 'show_details': st.session_state.get("装箱分析_show_details", True),
                 'container_length': st.session_state.get("container_length", 600),
                 'container_width': st.session_state.get("container_width", 400),
-                'container_height': st.session_state.get("container_height", 300)
+                'container_height': st.session_state.get("container_height", 300),
+                'container_weight_limit': st.session_state.get("container_weight_limit", 30),
+                'use_dividers': st.session_state.get("use_dividers") == "是",
+                'selected_dividers': st.session_state.get("selected_dividers", [])
             }
         
         # 异常数据清洗配置
         elif dimension == "异常数据清洗":
             config = {
                 'all_conditions': st.session_state.get("异常数据清洗_all_conditions", []),
-                'overall_logic': st.session_state.get("异常数据清洗_overall_logic", "OR"),
-                'action': st.session_state.get("异常数据清洗_action", "删除")
+                'overall_logic': st.session_state.get("异常数据清洗_overall_logic", "OR")
+            }
+        
+        # ABC分析配置
+        elif dimension == "ABC分析":
+            config = {
+                'sku_column': st.session_state.get("ABC分析_sku_column"),
+                'quantity_column': st.session_state.get("ABC分析_quantity_column"),
+                'a_percentage': st.session_state.get("ABC分析_a_percentage", 80),
+                'b_percentage': st.session_state.get("ABC分析_b_percentage", 15)
+            }
+        
+        # 出库分析配置
+        elif dimension == "出库分析":
+            config = {
+                '出库分析_date_column': st.session_state.get("出库分析_date_column"),
+                '出库分析_order_data_type': st.session_state.get("出库分析_order_data_type"),
+                '出库分析_order_id_column': st.session_state.get("出库分析_order_id_column"),
+                '出库分析_order_count_column': st.session_state.get("出库分析_order_count_column"),
+                '出库分析_sku_data_type': st.session_state.get("出库分析_sku_data_type"),
+                '出库分析_sku_column': st.session_state.get("出库分析_sku_column"),
+                '出库分析_sku_count_column': st.session_state.get("出库分析_sku_count_column"),
+                '出库分析_item_data_type': st.session_state.get("出库分析_item_data_type"),
+                '出库分析_item_column': st.session_state.get("出库分析_item_column"),
+                '出库分析_item_count_column': st.session_state.get("出库分析_item_count_column"),
+                '出库分析_start_date': st.session_state.get("出库分析_start_date"),
+                '出库分析_end_date': st.session_state.get("出库分析_end_date")
+            }
+        
+        # 入库分析配置
+        elif dimension == "入库分析":
+            config = {
+                '入库分析_date_column': st.session_state.get("入库分析_date_column"),
+                '入库分析_sku_data_type': st.session_state.get("入库分析_sku_data_type"),
+                '入库分析_sku_column': st.session_state.get("入库分析_sku_column"),
+                '入库分析_sku_count_column': st.session_state.get("入库分析_sku_count_column"),
+                '入库分析_quantity_data_type': st.session_state.get("入库分析_quantity_data_type"),
+                '入库分析_quantity_column': st.session_state.get("入库分析_quantity_column"),
+                '入库分析_quantity_count_column': st.session_state.get("入库分析_quantity_count_column"),
+                '入库分析_start_date': st.session_state.get("入库分析_start_date"),
+                '入库分析_end_date': st.session_state.get("入库分析_end_date")
+            }
+        
+
+        
+        # 订单结构分析配置
+        elif dimension == "订单结构分析":
+            config = {
+                '订单结构分析_order_column': st.session_state.get("订单结构分析_order_column"),
+                '订单结构分析_item_column': st.session_state.get("订单结构分析_item_column"),
+                '订单结构分析_quantity_column': st.session_state.get("订单结构分析_quantity_column"),
+                '订单结构分析_amount_column': st.session_state.get("订单结构分析_amount_column")
             }
         
         return config
